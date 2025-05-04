@@ -11,7 +11,7 @@ pub struct Token {
 pub enum TokenKind {
     // Keywords
     Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
-    If, Then, Else, Match, With, Do, End, Using,
+    If, Then, Else, Match, With, Do, End, Using, Matches,
     Rec, Proc, Fun, Sealed, Extends, Some, 
     Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo,
     True, False, Unit, Underscore,
