@@ -14,7 +14,7 @@ pub enum TokenKind {
     If, Then, Else, Match, With, Do, End, Using,
     Rec, Proc, Fun, Sealed, Extends, Some, 
     Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo,
-    True, False, Unit,
+    True, False, Unit, Underscore,
     
     // Identifiers
     Ident(String),
