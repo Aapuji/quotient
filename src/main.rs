@@ -15,6 +15,7 @@ use clap::Parser;
 
 use cli::Cli;
 use lexer::Lexer;
+use session::Session;
 use source::FileId;
 
 fn load_file(path: &Path) -> io::Result<(SimpleFiles<Cow<'_, str>, String>, FileId)> {
@@ -57,10 +58,14 @@ fn run() -> io::Result<()> {
     }
 
     // Otherwise, Read from file
-    let (file_map, main_id) = load_file(Path::new(filename))?;
+    let mut session = {
+        let (source_map, main_id) = load_file(Path::new(filename))?;
+
+        Session::new(source_map, main_id, vec![])
+    };
 
     // Lex file
-    let mut lexer = Lexer::new(file_map.get(main_id).unwrap().source(), main_id);
+    let mut lexer = Lexer::new(&mut session);
 
     Ok(())
 }
