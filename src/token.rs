@@ -1,4 +1,4 @@
-use crate::source::Span;
+use crate::{lexer::LexerError, source::Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
@@ -35,7 +35,7 @@ pub enum TokenKind {
     Int,
     Real,
     Imaginary,
-    String,
+    String, FString, BigFString, RegexString, RawString, ByteString, CharString,
     True, False,
     Unit,
 
@@ -54,6 +54,6 @@ pub enum TokenKind {
     DocComment,
     UpperDocComment,
 
-    Error(String),
+    Error(LexerError),
     Eof
 }

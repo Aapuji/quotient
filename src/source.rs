@@ -2,7 +2,7 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
     start: usize,
-    end: usize,
+    end: usize, // starting pos of next character
     file_id: FileId // Used to resolve to actual source lines
 }
 

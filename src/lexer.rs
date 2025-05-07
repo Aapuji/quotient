@@ -147,12 +147,17 @@ impl<'t> Lexer<'t> {
                 if c >= '0' && c < ('0' as u8 + base.min(10)) as char {
                     self.next();
                 } else {
-                    let diagnostic = Diagnostic::error()
+                    let start = self.pos;
+                    let end = self.pos + 1;
+
+                    tokens.push(Token::new(
+                        TokenKind::Error(LexerError::InvalidDigit), 
+                        Span::new(start, end, self.file_id)));
+
+                    diagnostics.push(Diagnostic::error()
                         .with_message(format!("invalid digit for base {} literal", base))
-                        .with_label(Label::primary(self.file_id, self.pos..self.pos+1));
-                    
-                    diagnostics.push(diagnostic);
-                    
+                        .with_label(Label::primary(self.file_id, start..end)));
+                                        
                     self.next();
                 }
             // i for imaginary numbers
@@ -178,38 +183,54 @@ impl<'t> Lexer<'t> {
                                 self.next();
                                 num_kind = TokenKind::Real;
                             } else {
-                                let diagnostic = Diagnostic::error()
-                                    .with_message("cannot have multiple floating points")
-                                    .with_label(Label::primary(self.file_id, self.pos..self.pos+1));
+                                let start = self.pos;
+                                let end = self.pos + 1;
 
-                                diagnostics.push(diagnostic);
+                                tokens.push(Token::new(
+                                    TokenKind::Error(LexerError::MultipleFloatingPoints),
+                                    Span::new(start, end, self.file_id)
+                                ));
+
+                                diagnostics.push(Diagnostic::error()
+                                    .with_message("cannot have multiple floating points")
+                                    .with_label(Label::primary(self.file_id, start..end)));
 
                                 self.next();
                             }
                         } else {
-                            let diagnostic = Diagnostic::error()
+                            let start = self.pos;
+                            let end = self.pos + 1;
+
+                            tokens.push(Token::new(
+                                TokenKind::Error(LexerError::NonDecimalFloatingPoint), 
+                                Span::new(start, end, self.file_id)));
+                            
+                            diagnostics.push(Diagnostic::error()
                                 .with_message(format!("base {} floating point literals are not supported", base))
                                 .with_labels(vec![
                                     Label::primary(self.file_id, self.pos..self.pos+1)
-                                ]);
-                        
-                            diagnostics.push(diagnostic);
-                            
+                                ]));
+                                                    
                             self.next();
                         }
                     } else if base == 16 && (
                         c >= 'a' && c <= 'f' ||
                         c >= 'A' && c <= 'F'
                     ) {
-                        let diagnostic = Diagnostic::error()
-                                .with_message("base 16 floating point literals are not supported")
-                                .with_labels(vec![
-                                    Label::primary(self.file_id, self.pos..self.pos+1)
-                                ]);
-                        
-                            diagnostics.push(diagnostic);
-                            
-                            self.next();
+                        let start = self.pos;
+                        let end = self.pos + 1;
+
+                        tokens.push(Token::new(
+                            TokenKind::Error(LexerError::NonDecimalFloatingPoint),
+                            Span::new(start, end, self.file_id)));
+
+                        diagnostics.push(Diagnostic::error()
+                            .with_message("base 16 floating point literals are not supported")
+                            .with_labels(vec![
+                                Label::primary(self.file_id, self.pos..self.pos+1)
+                            ]));
+                                                
+                        self.next();
                     } else if c.is_whitespace() {
                         self.next();
                         num_kind = TokenKind::Int;
@@ -237,9 +258,23 @@ impl<'t> Lexer<'t> {
         diagnostics
     }
 
-    /// Lexes a string, given the prefix (or `None` if it is a regular string).
-    fn lex_string(&mut self, tokens: &mut Vec<Token>, prefix: Option<&str>) -> Vec<Diagnostic<FileId>> {
-        todo!()
+    /// Lexes a regular string.
+    fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
+        let start_pos = self.pos;
+        let mut diagnostics = Vec::<Diagnostic<FileId>>::new();
+
+        // Skip initial '"'
+        self.next();
+
+        while let Some(c) = self.ch {
+
+        }
+
+        if diagnostics.len() == 0 {
+            todo!()
+        }
+
+        diagnostics
     }
 
     /// Lexes an identifier or a keyword.
@@ -273,7 +308,7 @@ impl<'t> Lexer<'t> {
             Some(c) if c.is_ascii_digit() => Some(diagnostics.append(&mut self.lex_number(tokens, 0))),
             
             // String
-            Some('"') => Some(diagnostics.append(&mut self.lex_string(tokens, None))),
+            Some('"') => Some(diagnostics.append(&mut self.lex_string(tokens))),
             
             // Identifiers, Keywords, Or Prefixed Strings
             Some(c) if c.is_alphabetic() => Some(diagnostics.append(&mut self.lex_ident(tokens))),
@@ -329,3 +364,11 @@ impl<'t> Lexer<'t> {
         }
     }
 } 
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum LexerError {
+    // Numbers
+    InvalidDigit,
+    NonDecimalFloatingPoint,
+    MultipleFloatingPoints,
+}
