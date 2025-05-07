@@ -1,10 +1,23 @@
-use crate::num::{Int, Real};
 use crate::source::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     kind: TokenKind,
     span: Span
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+
+    pub fn kind(&self) -> &TokenKind {
+        &self.kind
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -14,17 +27,17 @@ pub enum TokenKind {
     If, Then, Else, Match, With, Do, End, Using, Matches,
     Rec, Proc, Fun, Sealed, Extends, Some, 
     Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo,
-    True, False, Unit, Underscore,
     
     // Identifiers
-    Ident(String),
+    Ident,
     
     // Literals
-    Int(Int),
-    Real(Real),
-    Imaginary(Real),
-    String(String),
-    Bool(bool),
+    Int,
+    Real,
+    Imaginary,
+    String,
+    True, False,
+    Unit,
 
     // Separators
     LParen, RParen,
@@ -34,12 +47,13 @@ pub enum TokenKind {
     Tilde,
 
     // Operator
-    Operator(String),
+    Operator,
+    Underscore,
     
     // Comments
-    DocComment(String),
-    UpperDocComment(String),
+    DocComment,
+    UpperDocComment,
 
-    Invalid(char),
+    Error(String),
     Eof
 }

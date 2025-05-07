@@ -20,6 +20,14 @@ impl<'t> Session<'t> {
         }
     }
 
+    pub fn push_diagnostic(&mut self, diagnostic: Diagnostic<FileId>) {
+        self.diagnostics.push(diagnostic)
+    }
+
+    pub fn append_diagnostics(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) {
+        self.diagnostics.append(diagnostics);
+    }
+
     pub fn source_map(&self) -> &SimpleFiles<Cow<'t, str>, String> {
         &self.source_map
     }
