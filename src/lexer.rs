@@ -155,20 +155,21 @@ impl<'t> Lexer<'t> {
                     
                     self.next();
                 }
+            // i for imaginary numbers
+            } else if c == 'i' {
+                self.next();
+                num_kind = TokenKind::Imaginary;
+                break;
             } else if c.is_ascii_alphabetic() && base == 16 {
                 // Base 16 digits
                 if c >= 'a' && c <= 'f' ||
                    c >= 'A' && c <= 'F' {
                     self.next();
-                // i for imaginary numbers
-                } else if c == 'i' {
-                    self.next();
-                    num_kind = TokenKind::Imaginary;
-                    break;
                 // Anything else
                 } else {
                     break;
                 }
+            // for decimal points
             } else if c == '.' {
                 if let Some(c) = self.peek() {
                     if c.is_ascii_digit() {
@@ -196,6 +197,19 @@ impl<'t> Lexer<'t> {
                             
                             self.next();
                         }
+                    } else if base == 16 && (
+                        c >= 'a' && c <= 'f' ||
+                        c >= 'A' && c <= 'F'
+                    ) {
+                        let diagnostic = Diagnostic::error()
+                                .with_message("base 16 floating point literals are not supported")
+                                .with_labels(vec![
+                                    Label::primary(self.file_id, self.pos..self.pos+1)
+                                ]);
+                        
+                            diagnostics.push(diagnostic);
+                            
+                            self.next();
                     } else if c.is_whitespace() {
                         self.next();
                         num_kind = TokenKind::Int;
