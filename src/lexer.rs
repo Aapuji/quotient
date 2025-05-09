@@ -121,19 +121,11 @@ impl<'t> Lexer<'t> {
                     // Base 16
                     Some('x') |
                     Some('X') => lex_base!(16),
-                    
-                    Some(c) if c.is_ascii_digit() => {
-                        base = 10;
-                    }
-
-                    Some('_') => {
-                        base = 10;
-                    }
 
                     // Don't deal with the other stuff; 
                     // This section is only for dealing with the base
                     Some(_) |
-                    None    => ()
+                    None    => base = 10,
                 }
             } else {
                 base = 10;
@@ -244,7 +236,7 @@ impl<'t> Lexer<'t> {
                 }
             // Anything else
             } else {
-                break;
+                break
             }
         }
 
@@ -262,16 +254,137 @@ impl<'t> Lexer<'t> {
     fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
         let start_pos = self.pos;
         let mut diagnostics = Vec::<Diagnostic<FileId>>::new();
+        let end_last_line = self.pos;
 
-        // Skip initial '"'
-        self.next();
+        // Is currently at `"`.
 
-        while let Some(c) = self.ch {
+        loop {
+            // Go to next character
+            self.next();
 
+            match self.ch {
+                Some('"') => {
+                    self.next();
+                    break
+                }
+
+                Some('\\') => {
+                    self.next();
+
+                    match self.ch {
+                        // Single-char Escape Sequences
+                        Some('\\') |
+                        Some('\'') |
+                        Some('"')  |
+                        Some('a')  |
+                        Some('b')  |
+                        Some('e')  |
+                        Some('f')  |
+                        Some('n')  |
+                        Some('r')  |
+                        Some('s')  |
+                        Some('t')  |
+                        Some('v')  |
+                        Some('0')  |
+                        Some(' ')  |
+                        Some('\r') | // Treated the same as below if the next character is \n
+                        Some('\n') => (),
+
+                        // Unicode Escape Sequence (in decimal)
+                        Some('u') | 
+                        Some('U') => {
+                            let ustart = self.pos;
+                            self.next();
+
+                            match self.ch {
+                                Some(c) if c.is_ascii_alphanumeric() => (),
+                                Some('{') => {
+                                    let start = ustart - 1;
+                                    let end = self.pos + 1;
+
+                                    tokens.push(Token::new(
+                                        TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                        Span::new(start, end, self.file_id)));
+                                    
+                                    diagnostics.push(Diagnostic::error()
+                                        .with_message(format!("invalid unicode escape sequence: `{{`"))
+                                        .with_label(Label::primary(self.file_id, start..end).with_message("invalid unicode escape sequence"))
+                                        .with_note("unicode interpolation sequences are only allowed inside f-strings"));
+                                    }
+                                Some(c) => {
+                                    let start = ustart;
+                                    let end = self.pos + 1;
+
+                                    tokens.push(Token::new(
+                                        TokenKind::Error(LexerError::InvalidEscapeSequence),
+                                        Span::new(start, end, self.file_id)));
+                                    
+                                    diagnostics.push(Diagnostic::error()
+                                        .with_message(format!("invalid unicode escape sequence: `{c}`"))
+                                        .with_label(Label::primary(self.file_id, ustart..end)));
+                                },
+                                None => {
+                                    let start = start_pos;
+                                    let end = start_pos + 1;
+
+                                    tokens.push(Token::new(
+                                        TokenKind::Error(LexerError::UnterminatedString),
+                                        Span::new(start_pos, start_pos+1, self.file_id)));
+                                    
+                                    diagnostics.push(Diagnostic::error()
+                                        .with_message("unterminated string literal")
+                                        .with_label(Label::primary(self.file_id, start_pos..start_pos+1)));
+
+                                    break   
+                                } 
+                            }
+                        },
+
+                        // Ascii Escape Sequence (in hexadecimal)
+                        Some('x') => todo!(),
+
+                        // Invalid
+                        Some(c) => {
+                            let start = self.pos-1;
+                            let end = self.pos + 1;
+
+                            tokens.push(Token::new(
+                                TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                Span::new(start, end, self.file_id)));
+                            
+                            diagnostics.push(Diagnostic::error()
+                                .with_message(format!("invalid escape sequence: `{c}`"))
+                                .with_label(Label::primary(self.file_id, start..end)));
+                        },
+
+                        // EOF
+                        None => todo!()
+                    }
+                }
+
+                Some(_) => (),
+
+                None => {
+                    let start = start_pos;
+                    let end = start_pos + 1;
+
+                    tokens.push(Token::new(
+                        TokenKind::Error(LexerError::UnterminatedString),
+                        Span::new(start_pos, start_pos+1, self.file_id)));
+                    
+                    diagnostics.push(Diagnostic::error()
+                        .with_message("unterminated string literal")
+                        .with_label(Label::primary(self.file_id, start_pos..start_pos+1)));
+
+                    break
+                }
+            }
         }
 
         if diagnostics.len() == 0 {
-            todo!()
+            tokens.push(Token::new(
+                TokenKind::String, 
+                Span::new(start_pos, self.pos, self.file_id)));
         }
 
         diagnostics
@@ -355,7 +468,11 @@ impl<'t> Lexer<'t> {
             }
         };
 
-        // diagnostics
+        println!("At End: {:?}", self.ch);
+        while !self.at_end() {
+            self.next();
+            println!("And Then: {:?}", self.ch);
+        }
 
         if let Some(_) = res {
             diagnostics
@@ -371,4 +488,8 @@ pub enum LexerError {
     InvalidDigit,
     NonDecimalFloatingPoint,
     MultipleFloatingPoints,
+    // Strings
+    UnterminatedString,
+    InvalidEscapeSequence,
+    InvalidUnicodeEscapeSequence
 }

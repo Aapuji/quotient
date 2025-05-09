@@ -68,8 +68,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         Session::new(source_map, main_id, vec![])
     };
 
-    // println!("{}", 0b1102);
-
     // Lex file
     let mut lexer = Lexer::new(&mut session);
     let mut tokens = Vec::<Token>::with_capacity(64);
@@ -81,6 +79,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let writer = StandardStream::stderr(ColorChoice::Always);
     let mut config = codespan_reporting::term::Config::default();
     config.chars = Chars::ascii();
+    config.chars.source_border_left_break = '·';
 
     for diagnostic in session.diagnostics() {
         term::emit(&mut writer.lock(), &config, session.source_map(), &diagnostic)?;
