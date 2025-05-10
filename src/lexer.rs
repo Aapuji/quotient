@@ -3,6 +3,7 @@ use std::str::CharIndices;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 
+use crate::error::LexerError;
 use crate::session::Session;
 use crate::source::{FileId, Span};
 use crate::token::{self, Token, TokenKind};
@@ -10,7 +11,7 @@ use crate::token::{self, Token, TokenKind};
 /// Represents the Lexer.
 #[derive(Debug)]
 pub struct Lexer<'t> {
-    //src: &'t str,
+    // src: &'t str,
     chars: Peekable<CharIndices<'t>>,
     ch: Option<char>, // Current char 
     pos: usize, // Holds flat index of next char, line and cols are calculated when needed
@@ -481,15 +482,3 @@ impl<'t> Lexer<'t> {
         }
     }
 } 
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub enum LexerError {
-    // Numbers
-    InvalidDigit,
-    NonDecimalFloatingPoint,
-    MultipleFloatingPoints,
-    // Strings
-    UnterminatedString,
-    InvalidEscapeSequence,
-    InvalidUnicodeEscapeSequence
-}

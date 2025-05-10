@@ -1,4 +1,5 @@
 mod cli;
+mod error;
 mod lexer;
 mod num;
 mod session;

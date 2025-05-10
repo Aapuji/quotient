@@ -1,4 +1,4 @@
-use crate::{lexer::LexerError, source::Span};
+use crate::{error::LexerError, source::Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
