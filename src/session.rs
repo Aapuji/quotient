@@ -1,18 +1,17 @@
-use std::borrow::Cow;
-use codespan_reporting::{files::SimpleFiles, diagnostic::Diagnostic};
+use miette::Diagnostic;
 
-use crate::source::FileId;
+use crate::source::{FileId, SourceMap};
 
 /// Represents the state for one entire run of the compilation process.
 #[derive(Debug)]
-pub struct Session<'t> {
-    source_map: SimpleFiles<Cow<'t, str>, String>,
+pub struct Session {
+    source_map: SourceMap,
     main_id: FileId,
-    diagnostics: Vec<Diagnostic<FileId>>
+    diagnostics: Vec<Box<dyn Diagnostic>>
 }
 
-impl<'t> Session<'t> {
-    pub fn new(source_map: SimpleFiles<Cow<'t, str>, String>, main_id: FileId, diagnostics: Vec<Diagnostic<FileId>>) -> Self {
+impl Session {
+    pub fn new(source_map: SourceMap, main_id: FileId, diagnostics: Vec<Box<dyn Diagnostic>>) -> Self {
         Self {
             source_map,
             main_id,
@@ -20,15 +19,15 @@ impl<'t> Session<'t> {
         }
     }
 
-    pub fn push_diagnostic(&mut self, diagnostic: Diagnostic<FileId>) {
+    pub fn push_diagnostic(&mut self, diagnostic: Box<dyn Diagnostic>) {
         self.diagnostics.push(diagnostic)
     }
 
-    pub fn append_diagnostics(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) {
+    pub fn append_diagnostics(&mut self, diagnostics: &mut Vec<Box<dyn Diagnostic>>) {
         self.diagnostics.append(diagnostics);
     }
 
-    pub fn source_map(&self) -> &SimpleFiles<Cow<'t, str>, String> {
+    pub fn source_map(&self) -> &SourceMap {
         &self.source_map
     }
 
@@ -40,7 +39,7 @@ impl<'t> Session<'t> {
         self.source_map.get(self.main_id).unwrap().source()
     }
 
-    pub fn diagnostics(&self) -> &Vec<Diagnostic<FileId>> {
+    pub fn diagnostics(&self) -> &[Box<dyn Diagnostic>] {
         &self.diagnostics
     }
 }

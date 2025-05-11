@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    braced, parse::Parse, parse::ParseStream, parse_macro_input, Item, Ident, Result, Attribute, Visibility, Token
+    braced, parse::{Parse, ParseStream}, parse_macro_input, Attribute, Ident, Item, LifetimeParam, Result, Token, Visibility
 };
 
 struct StructEnumInput {
