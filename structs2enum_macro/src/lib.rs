@@ -1,23 +1,33 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    braced, parse::{Parse, ParseStream}, parse_macro_input, Attribute, Ident, Item, LifetimeParam, Result, Token, Visibility
+    braced, parse::{Parse, ParseStream}, parse_macro_input, token::Comma, Attribute, Ident, Item, LifetimeParam, Result, Token, Visibility
 };
 
 struct StructEnumInput {
-    attrs: Vec<Attribute>,
-    vis: Visibility,
-    enum_token: Token![enum],
-    enum_name: Ident,
+    flat_attrs: Vec<Attribute>,
+    flat_vis: Visibility,
+    flat_enum_token: Token![enum],
+    flat_enum_name: Ident,
+    comma: Comma,
+    data_attrs: Vec<Attribute>,
+    data_vis: Visibility,
+    data_enum_token: Token![enum],
+    data_enum_name: Ident,
     content: Vec<Item>,
 }
 
 impl Parse for StructEnumInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        let attrs = input.call(Attribute::parse_outer)?;
-        let vis: Visibility = input.parse()?;
-        let enum_token: Token![enum] = input.parse()?;
-        let enum_name: Ident = input.parse()?;
+        let flat_attrs = input.call(Attribute::parse_outer)?;
+        let flat_vis: Visibility = input.parse()?;
+        let flat_enum_token: Token![enum] = input.parse()?;
+        let flat_enum_name: Ident = input.parse()?;
+        let comma: Comma = input.parse()?;
+        let data_attrs = input.call(Attribute::parse_outer)?;
+        let data_vis: Visibility = input.parse()?;
+        let data_enum_token: Token![enum] = input.parse()?;
+        let data_enum_name: Ident = input.parse()?;
 
         let content;
         braced!(content in input);
@@ -28,23 +38,30 @@ impl Parse for StructEnumInput {
         }
 
         Ok(StructEnumInput {
-            attrs,
-            vis,
-            enum_token,
-            enum_name,
+            flat_attrs,
+            flat_vis,
+            flat_enum_token,
+            flat_enum_name,
+            comma,
+            data_attrs,
+            data_vis,
+            data_enum_token,
+            data_enum_name,
             content: items,
         })
     }
 }
 
 
-/// Given a series of structs, generate an enum with those struct names as enum variants.
+/// Given a series of structs, generate an enum with those struct names as enum variants and an enum with those struct names as variants with the respective struct as data.
 /// 
 /// ## Example
 /// ```
 /// define_enum_from_structs! {
-///     #[derive(Debug)]
-///     enum MyEnum {
+///     #[derive(Debug, Clone)]
+///     pub enum MyError,
+///     #[derive(Debug)] 
+///     pub enum MyDiagnostic {
 ///         /// A test struct
 ///         #[derive(Debug)]
 ///         pub struct A {
@@ -59,13 +76,44 @@ impl Parse for StructEnumInput {
 ///     }
 /// }
 /// ```
+/// The above is equivalent to
+/// ```
+/// /// A test struct
+/// #[derive(Debug)]
+/// pub struct A {
+///     x: i32,
+/// }
+/// 
+/// /// Another struct
+/// #[derive(Debug, Clone)]
+/// pub struct B {
+///     y: String,
+/// }
+/// 
+/// #[derive(Debug, Clone)]
+/// pub enum MyError {
+///     A,
+///     B
+/// }
+/// 
+/// #[derive(Debug)]
+/// pub enum MyDiagnostic {
+///     A(A),
+///     B(B)
+/// }
+/// ```
 #[proc_macro]
 pub fn define_enum_from_structs(input: TokenStream) -> TokenStream {
     let StructEnumInput {
-        attrs,
-        vis,
-        enum_token,
-        enum_name,
+        flat_attrs,
+        flat_vis,
+        flat_enum_token,
+        flat_enum_name,
+        comma,
+        data_attrs,
+        data_vis,
+        data_enum_token,
+        data_enum_name,
         content,
     } = parse_macro_input!(input as StructEnumInput);
 
@@ -80,13 +128,22 @@ pub fn define_enum_from_structs(input: TokenStream) -> TokenStream {
     }
 
     let enum_variants = struct_names.iter().map(|name| quote! { #name, });
+    let enum_variants_with_data = struct_names.iter().map(|name| quote! { #name(#name), });
+
 
     let expanded = quote! {
         #(#output_structs)*
 
-        #(#attrs)*
-        #vis enum #enum_name {
+        // Flat enum
+        #(#flat_attrs)*
+        #flat_vis enum #flat_enum_name {
             #(#enum_variants)*
+        }
+
+        // Data enum
+        #(#data_attrs)*
+        #data_vis enum #data_enum_name {
+            #(#enum_variants_with_data)*
         }
     };
 

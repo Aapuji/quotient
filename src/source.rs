@@ -1,4 +1,4 @@
-use std::iter;
+use std::{iter, sync::Arc};
 use miette::{MietteSpanContents, SourceCode, SourceSpan};
 
 /// Represents some span of text in a source file.
@@ -36,7 +36,7 @@ impl Into<SourceSpan> for Span {
 /// Represents multiple sources, creating unique identifiers for each.
 #[derive(Debug, Clone)]
 pub struct SourceMap {
-    sources: Vec<SourceText>
+    sources: Vec<Arc<SourceText>>
 }
 
 pub type FileId = usize;
@@ -48,17 +48,17 @@ impl SourceMap {
         }
     }
 
-    pub fn add(&mut self, name: String, buf: String) -> FileId {
-        self.sources.push(SourceText::new(name, buf));
+    pub fn add(&mut self, name: String, buf: &str) -> FileId {
+        self.sources.push(Arc::new(SourceText::new(name, buf)));
 
         self.sources.len() - 1
     }
 
-    pub fn get(&self, id: FileId) -> Option<&SourceText> {
+    pub fn get(&self, id: FileId) -> Option<Arc<SourceText>> {
         if id >= self.sources.len() {
             None
         } else {
-            Some(&self.sources[id])
+            Some(Arc::clone(&self.sources[id]))
         }
     }
 }
@@ -67,12 +67,12 @@ impl SourceMap {
 #[derive(Debug, Clone)]
 pub struct SourceText {
     name: String,
-    buf: String,
+    buf: Arc<str>,
     line_starts: Vec<usize>
 }
 
 impl SourceText {
-    pub fn new(name: String, buf: String) -> Self {
+    pub fn new(name: String, buf: &str) -> Self {
         Self { 
             name, 
             line_starts: iter::once(0)
@@ -80,13 +80,13 @@ impl SourceText {
                     .match_indices('\n')
                     .map(|(i, _)| i + 1))
                 .collect(),
-            buf
+            buf: buf.into()
         }
     }
 
     /// Gets the 0-indexed line:col number of the byte offset.
     pub fn coords_of(&self, offset: usize) -> (usize, usize) {
-        let (mut low, mut high) = (self.line_starts[0], self.line_starts.last().unwrap().to_owned());
+        let (mut low, mut high) = (0, self.line_starts.len() - 1);
 
         let line_offset = self.line_starts[loop {
             let mid = low + high / 2;
@@ -108,8 +108,8 @@ impl SourceText {
         &self.name
     }
 
-    pub fn source(&self) -> &str {
-        &self.buf
+    pub fn source(&self) -> Arc<str> {
+        Arc::clone(&self.buf)
     }
 }
 

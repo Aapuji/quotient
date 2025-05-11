@@ -1,47 +1,58 @@
 use std::iter::Peekable;
 use std::str::CharIndices;
+use std::sync::{Arc, RwLock};
 
-use miette::Diagnostic;
-
-use crate::error::{self, LexerError, WithContext};
-use crate::session::Session;
+use crate::error::{self, DiagWrapper, LexerDiagnostic, LexerError, WithContext};
 use crate::source::{FileId, SourceMap, Span};
 use crate::token::{Token, TokenKind};
 
 /// Represents the Lexer.
 #[derive(Debug)]
-pub struct Lexer<'t> {
-    chars: Peekable<CharIndices<'t>>,
+pub struct Lexer {
+    chars: Peekable<CharIndices<'static>>,
     ch: Option<char>, // Current char 
     pos: usize, // Holds flat index of next char, line and cols are calculated when needed
     file_id: FileId,
-    source_map: &'t SourceMap
+    source_map: Arc<RwLock<SourceMap>>,
+    source: Arc<str> // Keeps the source alive to prevent UB
 }
 
-impl<'t> Lexer<'t> {
+impl Lexer {
     /// Creates a new `Lexer` for the main file.
-    pub fn new(session: &'t mut Session) -> Self {        
-        Self::with_file_id(session, *session.main_id())
+    pub fn new(session: (Arc<RwLock<SourceMap>>, FileId)) -> Self {        
+        Self::with_file_id(session.0,session.1)
     }
 
     /// Given `file_id` must be valid.
-    pub fn with_file_id(session: &'t mut Session, file_id: FileId) -> Self {
-        let source_map = session.source_map();
-        let src = source_map.get(file_id).unwrap().source();
-        let mut chars = src.char_indices().peekable();
-        let mut ch = None;
-        if chars.peek().is_some() {
-            ch = Some(chars.next().unwrap().1);
-        }
-        
+    pub fn with_file_id(source_map: Arc<RwLock<SourceMap>>, file_id: FileId) -> Self {
+        let source = {
+            let map = source_map.read().unwrap();
+            map.get(file_id).unwrap().source()
+        };
+
+        // Unsafely extend lifetime
+        // Safe iff Arc<str> is stored to keep it alive
+        let static_str: &'static str = unsafe {
+            std::mem::transmute::<&str, &'static str>(&*source)
+        };
+
+        let mut chars = static_str
+            .char_indices()
+            .peekable();
+        let ch = if chars.peek().is_some() {
+            chars.next().map(|(_, c)| c)
+        } else {
+            None
+        };
+
         let lexer = Self {
-            chars,
+            chars: chars,
             ch,
             pos: 0,
             file_id,
-            source_map
+            source_map,
+            source // Kept to keep source alive
         };
-
 
         lexer
     }
@@ -87,10 +98,9 @@ impl<'t> Lexer<'t> {
     /// Lexes a number, given the base. If `base` is 0, then it will figure out the base.
     /// 
     /// Must be called only when the current character in the iterator is a digit.
-    fn lex_number(&mut self, tokens: &mut Vec<Token>, mut base: u8) -> Vec<WithContext<dyn Diagnostic>> {
+    fn lex_number(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>, mut base: u8) {
         let start_pos = self.pos;
         let mut num_kind = TokenKind::Int;
-        let mut diagnostics: Vec<WithContext<dyn Diagnostic>> = Vec::new();
 
         macro_rules! lex_base {
             ($n:expr) => {
@@ -147,14 +157,14 @@ impl<'t> Lexer<'t> {
                         span
                     ));
 
-                    diagnostics.push(WithContext::new(
-                        Box::new(error::InvalidDigit {
+                    diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::InvalidDigit(
+                        error::InvalidDigit {
                             base,
                             span: span.into(),
                             file_id: span.file_id()
                         }),
-                        self.source_map
-                    ));
+                        Arc::clone(&self.source_map)
+                    ))));
                                         
                     self.next();
                 }
@@ -188,13 +198,13 @@ impl<'t> Lexer<'t> {
                                     span
                                 ));
 
-                                diagnostics.push(WithContext::new(
-                                    Box::new(error::MultipleFloatingPoints {
+                                diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::MultipleFloatingPoints(
+                                    error::MultipleFloatingPoints {
                                         span: span.into(),
                                         file_id: span.file_id()
                                     }),
-                                    self.source_map
-                                ));
+                                    Arc::clone(&self.source_map)
+                                ))));
 
                                 self.next();
                             }
@@ -206,14 +216,14 @@ impl<'t> Lexer<'t> {
                                 span
                             ));
                             
-                            diagnostics.push(WithContext::new(
-                                Box::new(error::NonDecimalFloatingPoint {
+                            diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::NonDecimalFloatingPoint(
+                                error::NonDecimalFloatingPoint {
                                     base,
                                     span: span.into(),
                                     file_id: span.file_id()
                                 }),
-                                self.source_map
-                            ));
+                                Arc::clone(&self.source_map)
+                            ))));
 
                             self.next();
                         }
@@ -228,14 +238,14 @@ impl<'t> Lexer<'t> {
                             span
                         ));
 
-                        diagnostics.push(WithContext::new(
-                            Box::new(error::NonDecimalFloatingPoint {
+                        diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::NonDecimalFloatingPoint(
+                            error::NonDecimalFloatingPoint {
                                 base,
                                 span: span.into(),
                                 file_id: span.file_id()
                             }),
-                            self.source_map
-                        ));
+                            Arc::clone(&self.source_map)
+                        ))));
                                                 
                         self.next();
                     } else if c.is_whitespace() {
@@ -261,14 +271,11 @@ impl<'t> Lexer<'t> {
                 Span::new(start_pos, self.pos, self.file_id)
             )); 
         }
-
-        diagnostics
     }
 
     /// Lexes a regular string.
-    fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Vec<WithContext<dyn Diagnostic>> {
+    fn lex_string(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>) {
         let start_pos = self.pos;
-        let mut diagnostics: Vec<WithContext<dyn Diagnostic>> = Vec::new();
         let end_last_line = self.pos;
 
         // Is currently at `"`.
@@ -321,14 +328,14 @@ impl<'t> Lexer<'t> {
                                         span
                                     ));
                                     
-                                    diagnostics.push(WithContext::new(
-                                        Box::new(error::InvalidUnicodeEscapeSequence {
+                                    diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::InvalidUnicodeEscapeSequence(
+                                        error::InvalidUnicodeEscapeSequence {
                                             escape: format!("\\u{c}"),
                                             span: span.into(),
                                             file_id: span.file_id()
                                         }),
-                                        self.source_map
-                                    ));
+                                        Arc::clone(&self.source_map)
+                                    ))));
                                 },
                                 None => {
                                     let span = Span::new(start_pos, self.pos + 1, self.file_id);
@@ -338,13 +345,13 @@ impl<'t> Lexer<'t> {
                                         span
                                     ));
                                     
-                                    diagnostics.push(WithContext::new(
-                                        Box::new(error::UnterminatedString {
+                                    diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::UnterminatedString(
+                                        error::UnterminatedString {
                                             span: span.into(),
                                             file_id: span.file_id()
                                         }),
-                                        self.source_map
-                                    ));
+                                        Arc::clone(&self.source_map)
+                                    ))));
 
                                     break   
                                 } 
@@ -362,14 +369,14 @@ impl<'t> Lexer<'t> {
                                 TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
                                 span));
                             
-                            diagnostics.push(WithContext::new(
-                                Box::new(error::InvalidEscapeSequence {
+                            diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::InvalidEscapeSequence(
+                                error::InvalidEscapeSequence {
                                     escape: format!("\\{c}"),
                                     span: span.into(),
                                     file_id: span.file_id()
                                 }),
-                                self.source_map
-                            ));
+                                Arc::clone(&self.source_map)
+                            ))));
                         },
 
                         // EOF
@@ -386,13 +393,13 @@ impl<'t> Lexer<'t> {
                         TokenKind::Error(LexerError::UnterminatedString),
                         Span::new(start_pos, start_pos+1, self.file_id)));
                     
-                    diagnostics.push(WithContext::new(
-                        Box::new(error::UnterminatedString {
+                    diagnostics.push(DiagWrapper(Arc::new(WithContext::new(LexerDiagnostic::UnterminatedString(
+                        error::UnterminatedString {
                             span: span.into(),
                             file_id: span.file_id()
                         }),
-                        self.source_map
-                    ));
+                        Arc::clone(&self.source_map)
+                    ))));
 
                     break
                 }
@@ -404,48 +411,40 @@ impl<'t> Lexer<'t> {
                 TokenKind::String, 
                 Span::new(start_pos, self.pos, self.file_id)));
         }
-
-        diagnostics
     }
 
     /// Lexes an identifier or a keyword.
-    fn lex_ident(&mut self, tokens: &mut Vec<Token>) -> Vec<WithContext<dyn Diagnostic>> {
+    fn lex_ident(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>) {
         todo!()
     }
 
     /// Chooses either the underscore operators, or `_<ident>`.
-    fn lex_underscore(&mut self, tokens: &mut Vec<Token>) -> Vec<WithContext<dyn Diagnostic>> {
+    fn lex_underscore(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>) {
         todo!()
     }
 
     /// Lexes an operator, a doc comment, or a comment, producing a token for either, including a regular comment. That should be skipped in a future phase.
-    fn lex_operator(&mut self, tokens: &mut Vec<Token>) -> Vec<WithContext<dyn Diagnostic>> {
-        todo!()
-    }
-
-    fn skip_comment(&mut self, tokens: &mut Vec<Token>) {
+    fn lex_operator(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>) {
         todo!()
     }
 
     /// Lexes one token.
-    pub fn lex_token(&mut self, tokens: &mut Vec<Token>) -> Vec<WithContext<dyn Diagnostic>> {
-        let mut diagnostics = Vec::new();
-        
+    pub fn lex_token(&mut self, diagnostics: &mut Vec<DiagWrapper>, tokens: &mut Vec<Token>) {        
         self.skip_whitespace();
 
         // None if passed over a comment, and thus should repeat
         match self.ch {
             // Number
-            Some(c) if c.is_ascii_digit() => diagnostics.append(&mut self.lex_number(tokens, 0)),
+            Some(c) if c.is_ascii_digit() => self.lex_number(diagnostics, tokens, 0),
             
             // String
-            Some('"') => diagnostics.append(&mut self.lex_string(tokens)),
+            Some('"') => self.lex_string(diagnostics, tokens),
             
             // Identifiers, Keywords, Or Prefixed Strings
-            Some(c) if c.is_alphabetic() => diagnostics.append(&mut self.lex_ident(tokens)),
+            Some(c) if c.is_alphabetic() => self.lex_ident(diagnostics, tokens),
 
             // Underscore operators (satisfies regex _+), or identifier prepended by underscores
-            Some('_') => diagnostics.append(&mut self.lex_underscore(tokens)),
+            Some('_') => self.lex_underscore(diagnostics, tokens),
             
             // Operator Symbols (and Comments)
             // Operators satisfy the following regex: 
@@ -468,7 +467,7 @@ impl<'t> Lexer<'t> {
             Some(':')  |
             Some('\'') |
             Some('?')  |
-            Some('/')  => diagnostics.append(&mut self.lex_operator(tokens)),
+            Some('/')  => self.lex_operator(diagnostics, tokens),
 
             Some(_) => todo!(),
 
@@ -477,7 +476,5 @@ impl<'t> Lexer<'t> {
                 Span::new(self.pos, self.pos, self.file_id)
             ))
         };
-
-        diagnostics
     }
 } 
