@@ -10,7 +10,7 @@ use crate::token::{self, Token, TokenKind};
 /// Represents the Lexer.
 #[derive(Debug)]
 pub struct Lexer<'t> {
-    //src: &'t str,
+    src: &'t str,
     chars: Peekable<CharIndices<'t>>,
     ch: Option<char>, // Current char 
     pos: usize, // Holds flat index of next char, line and cols are calculated when needed
@@ -32,17 +32,13 @@ impl<'t> Lexer<'t> {
             ch = Some(chars.next().unwrap().1);
         }
         
-        let mut lexer = Self {
-           // src: src,
+        Self {
+            src,
             chars,
             ch,
             pos: 0,
             file_id
-        };
-
-        // lexer.next();
-
-        lexer
+        }
     }
 
     /// Checks the current character is the last one.
@@ -250,25 +246,104 @@ impl<'t> Lexer<'t> {
         diagnostics
     }
 
-    /// Lexes a regular string.
-    fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
-        let start_pos = self.pos;
+    /// Lexes a string. Should be called when `self.ch` is at `"`. Delegates to other string-lexing functions for other string kinds.
+    /// 
+    /// The argument `start_pos` tells position of the first character of the string quotation.
+    /// 
+    /// Note: This function can emit multiple tokens.
+    fn lex_string(&mut self, start_pos: usize, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
+        let mut segment_start = start_pos;
+        let mut set_segment_start = false;
+        let num_hash = self.pos - start_pos;
         let mut diagnostics = Vec::<Diagnostic<FileId>>::new();
-        let end_last_line = self.pos;
 
-        // Is currently at `"`.
+        macro_rules! push_segment {
+            ( if $cond:expr ) => {
+                if $cond {
+                    tokens.push(Token::new(
+                        TokenKind::StringSegment,
+                        Span::new(segment_start, self.pos, self.file_id)));
+                }
+            };
+        }
 
+        macro_rules! push_unterminated_error {
+            ( $start:expr, $end: expr ) => {
+                let start = $start;
+                let end = $end;
+
+                tokens.push(Token::new(
+                    TokenKind::Error(LexerError::UnterminatedString),
+                    Span::new(start, end, self.file_id)));
+                
+                diagnostics.push(Diagnostic::error()
+                    .with_message("unterminated string literal")
+                    .with_label(Label::primary(self.file_id, start..end)));
+            };
+        }
+
+        // Is currently at the `"`.
+
+        'outer:
         loop {
             // Go to next character
             self.next();
 
+            // Start new segment if needed
+            if set_segment_start {
+                segment_start = self.pos;
+                set_segment_start = false;
+            }
+
             match self.ch {
                 Some('"') => {
-                    self.next();
-                    break
+                    let mut all_hashes = true; 
+                    let end_start_pos = self.pos;
+
+                    // If is the correct ending delimiter, push tokens and break
+                    // Otherwise, all of these `next` calls work to advance the character pointer anyways
+                    for _ in 0..num_hash {
+                        self.next();
+                        
+                        match self.ch {
+                            Some('#') => continue,
+
+                            Some(_) => {
+                                all_hashes = false;
+                                break;
+                            }
+
+                            None => {
+                                push_unterminated_error!(start_pos, self.pos);
+                            }
+                        }
+                    }
+
+                    if all_hashes {
+                        self.next();
+
+                        // Segment
+                        if end_start_pos > start_pos {
+                            tokens.push(Token::new(
+                                TokenKind::StringSegment,
+                                Span::new(segment_start, end_start_pos, self.file_id)));
+                        }
+
+                        // End
+                        tokens.push(Token::new(
+                            TokenKind::StringEnd,
+                            Span::new(end_start_pos, self.pos, self.file_id)));
+                    
+                        break;
+                    }
                 }
 
                 Some('\\') => {
+                    let estart = self.pos;
+
+                    // If some segment already, push that
+                    push_segment!(if segment_start < estart);
+
                     self.next();
 
                     match self.ch {
@@ -288,52 +363,68 @@ impl<'t> Lexer<'t> {
                         Some('0')  |
                         Some(' ')  |
                         Some('\r') | // Treated the same as below if the next character is \n
-                        Some('\n') => (),
+                        Some('\n') => {
+                            tokens.push(Token::new(
+                                TokenKind::CharacterEsc,
+                                Span::new(estart, self.pos + 1, self.file_id)));
+                        },
 
                         // Unicode Escape Sequence (in decimal)
+                        // TODO: Support 8-len unicode escapes
                         Some('u') | 
                         Some('U') => {
                             let ustart = self.pos;
-                            self.next();
 
-                            match self.ch {
-                                Some(c) if c.is_ascii_alphanumeric() => (),
-                                Some('{') => {
-                                    let start = ustart - 1;
-                                    let end = self.pos + 1;
-
-                                    tokens.push(Token::new(
-                                        TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
-                                        Span::new(start, end, self.file_id)));
-                                    
-                                    diagnostics.push(Diagnostic::error()
-                                        .with_message(format!("invalid unicode escape sequence: `{{`"))
-                                        .with_label(Label::primary(self.file_id, start..end).with_message("invalid unicode escape sequence"))
-                                        .with_note("unicode interpolation sequences are only allowed inside f-strings"));
-                                    }
+                            match self.peek() {
                                 Some(c) => {
-                                    let start = ustart;
-                                    let end = self.pos + 1;
+                                    let seq_start = self.pos;
+                                    let mut is_invalid = false;
 
-                                    tokens.push(Token::new(
-                                        TokenKind::Error(LexerError::InvalidEscapeSequence),
-                                        Span::new(start, end, self.file_id)));
-                                    
-                                    diagnostics.push(Diagnostic::error()
-                                        .with_message(format!("invalid unicode escape sequence: `{c}`"))
-                                        .with_label(Label::primary(self.file_id, ustart..end)));
+                                    for _ in 0..4 {
+                                        self.next();
+
+                                        match self.ch {
+                                            Some('0'..='9') |
+                                            Some('a'..='f') |
+                                            Some('A'..='F') => (),
+
+                                            Some(_) => is_invalid = true,
+                                            None => {
+                                                push_unterminated_error!(start_pos, self.pos);
+
+                                                break 'outer;
+                                            }
+                                        }  
+                                    }
+
+                                    if is_invalid {
+                                        let start = ustart;
+                                        let end = self.pos + 1;
+
+                                        tokens.push(Token::new(
+                                            TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                            Span::new(start, end, self.file_id)));
+
+                                        diagnostics.push(Diagnostic::error()
+                                            .with_message(format!("invalid unicode escape sequence: `{}`", &self.src[seq_start..=self.pos]))
+                                            .with_label(Label::primary(self.file_id, start..end)));
+                                    }
                                 },
-                                None => {
-                                    let start = start_pos;
-                                    let end = start_pos + 1;
+                                // TODO: Add checking if it is of form \u{} and then tell user to use an f string
+                                // Some(c) => {
+                                //     let start = ustart;
+                                //     let end = self.pos + 1;
 
-                                    tokens.push(Token::new(
-                                        TokenKind::Error(LexerError::UnterminatedString),
-                                        Span::new(start_pos, start_pos+1, self.file_id)));
+                                //     tokens.push(Token::new(
+                                //         TokenKind::Error(LexerError::InvalidEscapeSequence),
+                                //         Span::new(start, end, self.file_id)));
                                     
-                                    diagnostics.push(Diagnostic::error()
-                                        .with_message("unterminated string literal")
-                                        .with_label(Label::primary(self.file_id, start_pos..start_pos+1)));
+                                //     diagnostics.push(Diagnostic::error()
+                                //         .with_message(format!("invalid unicode escape sequence: `{c}`"))
+                                //         .with_label(Label::primary(self.file_id, ustart..end)));
+                                // },
+                                None => {
+                                    push_unterminated_error!(start_pos, self.pos);
 
                                     break   
                                 } 
@@ -360,31 +451,20 @@ impl<'t> Lexer<'t> {
                         // EOF
                         None => todo!()
                     }
+
+                    set_segment_start = true;
                 }
 
                 Some(_) => (),
 
                 None => {
-                    let start = start_pos;
-                    let end = start_pos + 1;
+                    push_segment!(if segment_start < self.pos);
 
-                    tokens.push(Token::new(
-                        TokenKind::Error(LexerError::UnterminatedString),
-                        Span::new(start_pos, start_pos+1, self.file_id)));
-                    
-                    diagnostics.push(Diagnostic::error()
-                        .with_message("unterminated string literal")
-                        .with_label(Label::primary(self.file_id, start_pos..start_pos+1)));
+                    push_unterminated_error!(start_pos, self.pos);
 
                     break
                 }
             }
-        }
-
-        if diagnostics.len() == 0 {
-            tokens.push(Token::new(
-                TokenKind::String, 
-                Span::new(start_pos, self.pos, self.file_id)));
         }
 
         diagnostics
@@ -421,7 +501,7 @@ impl<'t> Lexer<'t> {
             Some(c) if c.is_ascii_digit() => Some(diagnostics.append(&mut self.lex_number(tokens, 0))),
             
             // String
-            Some('"') => Some(diagnostics.append(&mut self.lex_string(tokens))),
+            Some('"') => Some(diagnostics.append(&mut self.lex_string(self.pos, tokens))),
             
             // Identifiers, Keywords, Or Prefixed Strings
             Some(c) if c.is_alphabetic() => Some(diagnostics.append(&mut self.lex_ident(tokens))),

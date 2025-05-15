@@ -1,3 +1,7 @@
+use std::backtrace;
+
+use bitflags::bitflags;
+
 use crate::{lexer::LexerError, source::Span};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,7 +39,7 @@ pub enum TokenKind {
     Int,
     Real,
     Imaginary,
-    String, FString, BigFString, RegexString, RawString, ByteString, CharString,
+    StringStart(StringKind), StringSegment, CharacterEsc, UnicodeEsc, StringEnd,
     True, False,
     Unit,
 
@@ -56,4 +60,17 @@ pub enum TokenKind {
 
     Error(LexerError),
     Eof
+}
+
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+    pub struct StringKind : u8 {
+        const Normal    = 0;
+        const Format    = 1;
+        const BigFormat = 1 << 1; 
+        const Byte      = 1 << 2;
+        const Raw       = 1 << 3;
+        const Regex     = 1 << 4;
+    }
 }
