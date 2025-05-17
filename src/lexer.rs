@@ -1,11 +1,11 @@
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
+use codespan_reporting::diagnostic::{self, Diagnostic, Label};
 
 use crate::session::Session;
 use crate::source::{FileId, Span};
-use crate::token::{self, Token, TokenKind};
+use crate::token::{self, StringKind, Token, TokenKind, KEYWORDS};
 
 /// Represents the Lexer.
 #[derive(Debug)]
@@ -246,13 +246,13 @@ impl<'t> Lexer<'t> {
         diagnostics
     }
 
-    /// Lexes a string. Should be called when `self.ch` is at `"`. Delegates to other string-lexing functions for other string kinds.
+    /// Lexes a string. Should be called when `self.ch` is at `"`.
     /// 
     /// The argument `start_pos` tells position of the first character of the string quotation.
     /// 
     /// Note: This function can emit multiple tokens.
     fn lex_string(&mut self, start_pos: usize, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
-        let mut segment_start = start_pos;
+        let mut segment_start = start_pos + 1;
         let mut set_segment_start = false;
         let num_hash = self.pos - start_pos;
         let mut diagnostics = Vec::<Diagnostic<FileId>>::new();
@@ -323,11 +323,7 @@ impl<'t> Lexer<'t> {
                         self.next();
 
                         // Segment
-                        if end_start_pos > start_pos {
-                            tokens.push(Token::new(
-                                TokenKind::StringSegment,
-                                Span::new(segment_start, end_start_pos, self.file_id)));
-                        }
+                        push_segment!(if segment_start < end_start_pos);
 
                         // End
                         tokens.push(Token::new(
@@ -362,12 +358,35 @@ impl<'t> Lexer<'t> {
                         Some('v')  |
                         Some('0')  |
                         Some(' ')  |
-                        Some('\r') | // Treated the same as below if the next character is \n
                         Some('\n') => {
                             tokens.push(Token::new(
                                 TokenKind::CharacterEsc,
                                 Span::new(estart, self.pos + 1, self.file_id)));
                         },
+
+                        // Treated the same as the `\n` escape sequence if it is followed by \n (darn Windows being special) 
+                        Some('\r') => {
+                            if let Some('\n') = self.peek() {
+                                tokens.push(Token::new(
+                                    TokenKind::CharacterEsc,
+                                    Span::new(estart, self.pos + 2, self.file_id)));
+                                
+                                self.next();
+                            } else {
+                                let start = self.pos - 1;
+                                let end = self.pos + 1;
+
+                                tokens.push(Token::new(
+                                    TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                    Span::new(start, end, self.file_id)));
+                                
+                                diagnostics.push(Diagnostic::error()
+                                    .with_message(format!("invalid escape sequence: `\\r`"))
+                                    .with_label(Label::primary(self.file_id, start..end)));
+
+                                // Todo: Add a hint/note to say that the \r escape sequence is only supported if it is followed by a \n
+                            }
+                        }
 
                         // Unicode Escape Sequence (in decimal)
                         // TODO: Support 8-len unicode escapes
@@ -470,14 +489,44 @@ impl<'t> Lexer<'t> {
         diagnostics
     }
 
-    /// Lexes an identifier or a keyword.
-    fn lex_ident(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
+    // Delegates to the correct string lexing function based on the prefix, or outputs None if the prefix is invalid
+    fn delegate_string(&mut self, prefix_start: usize, string_start_pos: usize, quote_pos: usize) -> Option<Vec<Diagnostic<FileId>>> {
         todo!()
     }
 
-    /// Chooses either the underscore operators, or `_<ident>`.
-    fn lex_underscore(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
-        todo!()
+    /// Lexes an identifier, a keyword, an underscore operator (matching regex `_+`).
+    fn lex_ident(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
+        let start_pos = self.pos;
+        let mut all_underscores = true;
+
+        loop {
+            match self.ch {
+                Some(c) if c.is_alphabetic() => all_underscores = false,
+                Some(c) if c.is_ascii_digit() => all_underscores = false,
+                Some('\'') => all_underscores = false,
+                Some('_') => all_underscores = all_underscores && true,
+
+                Some(_) |
+                None    => {
+                    break;
+                }
+            }
+
+            self.next();
+        }
+
+
+        tokens.push(Token::new(
+            if let Some(&keyword_kind) = KEYWORDS.get(&self.src[start_pos..self.pos]) {
+                keyword_kind
+            } else if all_underscores {
+                TokenKind::Underscore
+            } else {
+                TokenKind::Ident
+            }, 
+            Span::new(start_pos, self.pos, self.file_id)));
+
+        Vec::new()
     }
 
     /// Lexes an operator or a doc comment and returns `Some(token)`, or skips a regular comment and returns `None`.
@@ -501,13 +550,19 @@ impl<'t> Lexer<'t> {
             Some(c) if c.is_ascii_digit() => Some(diagnostics.append(&mut self.lex_number(tokens, 0))),
             
             // String
-            Some('"') => Some(diagnostics.append(&mut self.lex_string(self.pos, tokens))),
+            Some('"') => {
+                tokens.push(Token::new(
+                    TokenKind::StringStart(StringKind::Normal),
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                Some(diagnostics.append(&mut self.lex_string(self.pos, tokens)))
+            }
             
             // Identifiers, Keywords, Or Prefixed Strings
             Some(c) if c.is_alphabetic() => Some(diagnostics.append(&mut self.lex_ident(tokens))),
 
             // Underscore operators (satisfies regex _+), or identifier prepended by underscores
-            Some('_') => Some(diagnostics.append(&mut self.lex_underscore(tokens))),
+            Some('_') => Some(diagnostics.append(&mut self.lex_ident(tokens))),
             
             // Operator Symbols (and Comments)
             // Operators satisfy the following regex: 

@@ -19,6 +19,10 @@ impl Span {
         self.start
     }
 
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+
     pub fn file_id(&self) -> FileId {
         self.file_id
     }

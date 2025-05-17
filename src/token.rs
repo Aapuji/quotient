@@ -1,8 +1,8 @@
-use std::backtrace;
-
 use bitflags::bitflags;
+use phf::phf_map;
 
-use crate::{lexer::LexerError, source::Span};
+use crate::lexer::LexerError;
+use crate::source::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
@@ -24,7 +24,7 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum TokenKind {
     // Keywords
     Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
@@ -52,7 +52,7 @@ pub enum TokenKind {
 
     // Operator
     Operator,
-    Underscore,
+    Underscore, // Can be any positive number of underscores, described by the length of the span
     
     // Comments
     DocComment,
@@ -62,6 +62,42 @@ pub enum TokenKind {
     Eof
 }
 
+pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
+    "let" => TokenKind::Let,
+    "mut" => TokenKind::Mut,
+    "and" => TokenKind::And,
+    "type" => TokenKind::Type,
+    "class" => TokenKind::Class,
+    "module" => TokenKind::Module,
+    "impl" => TokenKind::Impl,
+    "deriving" => TokenKind::Deriving,
+    "import" => TokenKind::Import,
+    "as" => TokenKind::As,
+    "if" => TokenKind::If,
+    "then" => TokenKind::Then,
+    "else" => TokenKind::Else,
+    "match" => TokenKind::Match,
+    "with" => TokenKind::With,
+    "do" => TokenKind::Do,
+    "end" => TokenKind::End,
+    "using" => TokenKind::Using,
+    "matches" => TokenKind::Matches,
+    "rec" => TokenKind::Rec,
+    "proc" => TokenKind::Proc,
+    "fun" => TokenKind::Fun,
+    "sealed" => TokenKind::Sealed,
+    "extends" => TokenKind::Extends,
+    "some" => TokenKind::Some,
+    "prefix" => TokenKind::Prefix,
+    "postfix" => TokenKind::Postfix,
+    "lassoc" => TokenKind::LAssoc,
+    "rassoc" => TokenKind::RAssoc,
+    "with_prec" => TokenKind::WithPrec,
+    "lazy" => TokenKind::Lazy,
+    "memo" => TokenKind::Memo,
+    "true" => TokenKind::True,
+    "false" => TokenKind::False
+};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
