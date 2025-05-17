@@ -377,7 +377,7 @@ impl<'t> Lexer<'t> {
                                 let end = self.pos + 1;
 
                                 tokens.push(Token::new(
-                                    TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                    TokenKind::Error(LexerError::InvalidEscapeSequence),
                                     Span::new(start, end, self.file_id)));
                                 
                                 diagnostics.push(Diagnostic::error()
@@ -395,29 +395,36 @@ impl<'t> Lexer<'t> {
                             let ustart = self.pos;
 
                             match self.peek() {
-                                Some(c) => {
+                                Some(_) => {
                                     let seq_start = self.pos;
                                     let mut is_invalid = false;
 
                                     for _ in 0..4 {
-                                        self.next();
-
-                                        match self.ch {
+                                        match self.peek() {
                                             Some('0'..='9') |
                                             Some('a'..='f') |
                                             Some('A'..='F') => (),
 
+                                            Some('"') => {
+                                                is_invalid = true;
+
+                                                break;
+                                            }
+
                                             Some(_) => is_invalid = true,
+
                                             None => {
                                                 push_unterminated_error!(start_pos, self.pos);
 
                                                 break 'outer;
                                             }
-                                        }  
+                                        }
+
+                                        self.next();
                                     }
 
                                     if is_invalid {
-                                        let start = ustart;
+                                        let start = estart;
                                         let end = self.pos + 1;
 
                                         tokens.push(Token::new(
@@ -426,7 +433,15 @@ impl<'t> Lexer<'t> {
 
                                         diagnostics.push(Diagnostic::error()
                                             .with_message(format!("invalid unicode escape sequence: `{}`", &self.src[seq_start..=self.pos]))
-                                            .with_label(Label::primary(self.file_id, start..end)));
+                                            .with_label(Label::primary(self.file_id, start..end))
+                                            .with_notes(vec![
+                                                String::from("`u` escape sequences must precede a 4-digit hexadecimal value"),
+                                                format!("expected 4 digits, found {}", self.pos - seq_start)
+                                            ]));
+                                    } else {
+                                        tokens.push(Token::new(
+                                            TokenKind::UnicodeEsc,
+                                            Span::new(estart, self.pos + 1, self.file_id)));
                                     }
                                 },
                                 // TODO: Add checking if it is of form \u{} and then tell user to use an f string
@@ -451,7 +466,56 @@ impl<'t> Lexer<'t> {
                         },
 
                         // Ascii Escape Sequence (in hexadecimal)
-                        Some('x') => todo!(),
+                        Some('x') => {
+                            let seq_start = self.pos;
+                            let mut is_invalid = false;
+
+                            for _ in 0..2 {
+                                match self.peek() {
+                                    Some('0'..='9') |
+                                    Some('a'..='f') |
+                                    Some('A'..='F') => (),
+                                    
+                                    Some('"') => {
+                                        is_invalid = true;
+                                        
+                                        break
+                                    },
+                                    
+                                    Some(_) => is_invalid = true,
+                                    
+                                    None => {
+                                        self.next();
+                                        push_unterminated_error!(start_pos, self.pos);
+
+                                        break 'outer;
+                                    }
+                                }
+
+                                self.next();
+                            }
+
+                            if is_invalid {
+                                let start = estart;
+                                let end = self.pos + 1;
+
+                                tokens.push(Token::new(
+                                    TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                    Span::new(start, end, self.file_id)));
+
+                                diagnostics.push(Diagnostic::error()
+                                    .with_message(format!("invalid escape sequence: `{}`", &self.src[seq_start..=self.pos]))
+                                    .with_label(Label::primary(self.file_id, start..end))
+                                    .with_notes(vec![
+                                        String::from("`x` escape sequences must precede a 2-digit hexadecimal value"),
+                                        format!("expected 2 digits, found {}", self.pos - seq_start)
+                                    ]));
+                            } else {
+                                tokens.push(Token::new(
+                                    TokenKind::CharacterEsc,
+                                    Span::new(estart, self.pos + 1, self.file_id)));
+                            }
+                        },
 
                         // Invalid
                         Some(c) => {
@@ -459,7 +523,7 @@ impl<'t> Lexer<'t> {
                             let end = self.pos + 1;
 
                             tokens.push(Token::new(
-                                TokenKind::Error(LexerError::InvalidUnicodeEscapeSequence),
+                                TokenKind::Error(LexerError::InvalidEscapeSequence),
                                 Span::new(start, end, self.file_id)));
                             
                             diagnostics.push(Diagnostic::error()
