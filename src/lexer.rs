@@ -320,10 +320,10 @@ impl<'t> Lexer<'t> {
                     }
 
                     if all_hashes {
-                        self.next();
-
-                        // Segment
+                        // Previous Segment
                         push_segment!(if segment_start < end_start_pos);
+
+                        self.next();
 
                         // End
                         tokens.push(Token::new(
@@ -337,7 +337,7 @@ impl<'t> Lexer<'t> {
                 Some('\\') => {
                     let estart = self.pos;
 
-                    // If some segment already, push that
+                    // Previous Segment
                     push_segment!(if segment_start < estart);
 
                     self.next();
