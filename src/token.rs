@@ -38,9 +38,9 @@ pub enum TokenKind {
     // Literals
     Int,
     Real,
-    Imaginary,
-    StringStart(StringKind), StringSegment, CharacterEsc, UnicodeEsc, StringEnd,
-    True, False,
+    Imaginary, 
+    StringStart(StringKind, u8), StringSegment, CharacterEsc, UnicodeEsc, StringEnd,
+    True, False, //         ^^ number of #s
     Unit,
 
     // Separators
@@ -103,10 +103,11 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
     pub struct StringKind : u8 {
         const Normal    = 0;
-        const Format    = 1;
-        const BigFormat = 1 << 1; 
-        const Byte      = 1 << 2;
-        const Raw       = 1 << 3;
-        const Regex     = 1 << 4;
+        const Byte      = 1;
+        const Char      = 1 << 1;
+        const Format    = 1 << 2;
+        const BigFormat = 1 << 3;
+        const Raw       = 1 << 4;
+        const Trim      = 1 << 5;
     }
 }

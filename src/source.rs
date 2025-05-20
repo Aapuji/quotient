@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 /// Represents some span of text in a source file.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
@@ -16,11 +18,15 @@ impl Span {
     }
 
     pub fn end(&self) -> usize {
-        self.start
+        self.end
     }
 
     pub fn len(&self) -> usize {
         self.end - self.start
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.start..self.end
     }
 
     pub fn file_id(&self) -> FileId {

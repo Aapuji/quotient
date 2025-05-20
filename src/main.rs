@@ -70,9 +70,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Lex file
     let mut lexer = Lexer::new(&mut session);
-    let mut tokens = Vec::<Token>::with_capacity(64);
-    let lex_token_res = &mut lexer.lex_token(&mut tokens);
-    session.append_diagnostics(lex_token_res);
+    let (tokens, mut diagnostics) = lexer.lex();
+    session.append_diagnostics(&mut diagnostics);
 
     println!("== Tokens ==\n{:#?}\n==Diagnostics==", tokens);
 
@@ -80,6 +79,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut config = codespan_reporting::term::Config::default();
     config.chars = Chars::ascii();
     config.chars.source_border_left_break = '·';
+    config.chars.snippet_start = String::from("\x08-->");
 
     for diagnostic in session.diagnostics() {
         term::emit(&mut writer.lock(), &config, session.source_map(), &diagnostic)?;
