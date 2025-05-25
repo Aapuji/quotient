@@ -254,6 +254,7 @@ impl<'t> Lexer<'t> {
     /// 
     /// Note: This function can emit multiple tokens.
     fn lex_string(&mut self, tokens: &mut Vec<Token>, start_pos: usize, num_hash: u8, prefix: StringKind) -> Vec<Diagnostic<FileId>> {
+        println!("NUM #: {num_hash}");
         let mut segment_start = self.pos + 1;
         let mut set_segment_start = false;
         let mut diagnostics = Vec::<Diagnostic<FileId>>::new();
@@ -299,7 +300,7 @@ impl<'t> Lexer<'t> {
             match self.ch {
                 Some('"') => {
                     let mut all_hashes = true; 
-                    let end_start_pos = self.pos;
+                    let end_prev_seg = self.pos;
 
                     // If is the correct ending delimiter, push tokens and break
                     // Otherwise, all of these `next` calls work to advance the character pointer anyways
@@ -322,14 +323,14 @@ impl<'t> Lexer<'t> {
 
                     if all_hashes {
                         // Previous Segment
-                        push_segment!(if segment_start < end_start_pos);
+                        push_segment!(if segment_start < end_prev_seg);
 
                         self.next();
 
                         // End
                         tokens.push(Token::new(
                             TokenKind::StringEnd,
-                            Span::new(end_start_pos, self.pos, self.file_id)));
+                            Span::new(end_prev_seg, self.pos, self.file_id)));
                     
                         break;
                     }
@@ -594,7 +595,7 @@ impl<'t> Lexer<'t> {
     fn is_directly_after_ident(&self, tokens: &Vec<Token>) -> bool {
         tokens
             .last()
-            .map_or_else(|| false, |t| t.kind() == &TokenKind::Ident && t.span().end() == self.pos)
+            .map_or_else(|| true, |t| t.kind() == &TokenKind::Ident && t.span().end() == self.pos)
     }
 
     /// Validates and records a string prefix, pushes the correct string start token, and then calls `lex_string`.
@@ -745,6 +746,7 @@ impl<'t> Lexer<'t> {
         }
 
         if had_invalid_prefix {
+            println!("IN PRE: {num_hash}");
             tokens.push(Token::new(
                 TokenKind::StringStart(StringKind::Normal, num_hash),
                 Span::new(span.start(), self.pos, self.file_id)));
@@ -840,103 +842,160 @@ impl<'t> Lexer<'t> {
             }
         }
 
-        // still todo, 
-        // work here 
-        // right now
-        // STULLL TODO
+        let len = self.pos - start_pos;
 
-        match &self.src[start_pos..self.pos] {
-            "#" => match self.ch {
-                Some('(') => todo!(),
+        if len == 1 && all_hashes {
+            match self.ch {
+                // Multi Line Comment
+                Some('(') => todo!("multi line comment"),
 
-                Some('"')  => if self.is_directly_after_ident(tokens) {
-                    match self.lex_string_prefix(tokens, 1) {
-                        Some(mut ds) => diagnostics.append(&mut ds),
-                        
-                        None => {
-                            tokens.push(Token::new(
-                                TokenKind::StringStart(StringKind::Normal, 1),
-                                Span::new(start_pos, self.pos + 1, self.file_id)));
-                        }
-                    }
-                } else {
-                    tokens.push(Token::new(
-                        TokenKind::StringStart(StringKind::Normal, 0), 
-                        Span::new(self.pos, self.pos + 1, self.file_id)));
+                // #" ... "#
+                Some('"') => todo!("#'...'#"),
 
-                    diagnostics.append(&mut self.lex_string(tokens, self.pos, 0, StringKind::Normal));
-                },
-
-                _ => todo!()
-            },
-
-            "##" => match self.ch {
-                Some('(') => todo!(),
-
-                Some('"') => if self.is_directly_after_ident(tokens) {
-                    match self.lex_string_prefix(tokens, 2) {
-                        Some(mut ds) => diagnostics.append(&mut ds),
-                        
-                        None => {
-                            tokens.push(Token::new(
-                                TokenKind::StringStart(StringKind::Normal, 2),
-                                Span::new(start_pos, self.pos + 1, self.file_id)));
-                        }
-                    }
-                } else {
-                    tokens.push(Token::new(
-                        TokenKind::StringStart(StringKind::Normal, 2), 
-                        Span::new(self.pos, self.pos + 1, self.file_id)));
-
-                    diagnostics.append(&mut self.lex_string(tokens, self.pos, 2, StringKind::Normal));
-                },
-
-                _ => todo!()
-            },
-
-            "##<" | "##^" => match self.ch {
-                Some('(') => todo!(),
-
-                _ => todo!()
-            },
-
-            op if all_hashes => match self.ch {
-                Some('"') => {
-                    let mut len = op.len();
-                    
-                    if len > u8::MAX as usize {
-                        let start = start_pos;
-                        let end = self.pos;
-
-                        tokens.push(Token::new(
-                            TokenKind::Error(LexerError::TooManyHashes), 
-                            Span::new(start, end, self.file_id)));
-                        
-                        diagnostics.push(Diagnostic::error()
-                            .with_message("too many `#` symbols")
-                            .with_label(Label::primary(self.file_id, start..end))
-                            .with_notes(vec![
-                                String::from("string literals can have up to 255 `#` symbols"),
-                                format!("expected at most 255 `#` symbols, found {len}")
-                            ]));
-
-                        len = 255
-                    }
-
-                    tokens.push(Token::new(
-                        TokenKind::StringStart(StringKind::Normal, len.min(u8::MAX as usize) as u8),
-                        Span::new(start_pos, self.pos, self.file_id)));
-                }
-
-                _ => todo!()
+                // Single Line Comment
+                _ => todo!("single line comment")
             }
+        } else if len == 2 && all_hashes {
+            match self.ch {
+                // Multi Line Doc Comment
+                Some('(') => todo!("multi line doc comment"),
 
-            _ => {
+                // ##" ... "##
+                Some('"') => todo!("##'...'##"),
 
+                // Single Line Doc Comment
+                _ => todo!("single line doc comment")
             }
+        } else if all_hashes {
+            match self.ch {
+                // ##..##" ... "##..##
+                Some('"') => todo!("##..##'...'##..##"),
+
+                // Some Operator
+                _ => todo!("some ##..## operator")
+            }
+        } else {
+            todo!("some operator")
         }
 
-        todo!()
+
+        // match &self.src[start_pos..self.pos] {
+        //     "#" => match self.ch {
+        //         // Multi Line Comment
+        //         Some('(') => todo!(),
+
+        //         // #" ... "#
+        //         Some('"')  => if self.is_directly_after_ident(tokens) {
+        //             match self.lex_string_prefix(tokens, 1) {
+        //                 Some(mut ds) => diagnostics.append(&mut ds),
+                        
+        //                 None => {
+        //                     tokens.push(Token::new(
+        //                         TokenKind::StringStart(StringKind::Normal, 1),
+        //                         Span::new(start_pos, self.pos + 1, self.file_id)));
+        //                 }
+        //             }
+        //         } else {
+        //             tokens.push(Token::new(
+        //                 TokenKind::StringStart(StringKind::Normal, 0), 
+        //                 Span::new(self.pos, self.pos + 1, self.file_id)));
+
+        //             diagnostics.append(&mut self.lex_string(tokens, self.pos, 0, StringKind::Normal));
+        //         },
+
+        //         // Single Line Comment
+        //         x => println!("UNKNOWN: {x:?} @ {}", self.pos)
+        //     },
+
+        //     "##" => match self.ch {
+        //         // Multi Line Comment
+        //         Some('(') => todo!(),
+
+        //         // ##" ... "##
+        //         Some('"') => if self.is_directly_after_ident(tokens) {
+        //             match self.lex_string_prefix(tokens, 2) {
+        //                 Some(mut ds) => diagnostics.append(&mut ds),
+                        
+        //                 None => {
+        //                     tokens.push(Token::new(
+        //                         TokenKind::StringStart(StringKind::Normal, 2),
+        //                         Span::new(start_pos, self.pos + 1, self.file_id)));
+        //                 }
+        //             }
+        //         } else {
+        //             dbg!("HERE");
+        //             tokens.push(Token::new(
+        //                 TokenKind::StringStart(StringKind::Normal, 2), 
+        //                 Span::new(self.pos, self.pos + 1, self.file_id)));
+
+        //             diagnostics.append(&mut self.lex_string(tokens, self.pos, 2, StringKind::Normal));
+        //         },
+
+        //         // Single Line Comment
+        //         _ => todo!()
+        //     },
+
+        //     "##<" | "##^" => match self.ch {
+        //         // Multi Line Comment
+        //         Some('(') => todo!(),
+
+        //         // Single Line Comment
+        //         _ => todo!()
+        //     },
+
+        //     // ##..##" ... "##..##
+        //     op if all_hashes && self.ch == Some('"') => {
+        //         let mut len = op.len();
+                
+        //         if len > u8::MAX as usize {
+        //             let start = start_pos;
+        //             let end = self.pos;
+
+        //             tokens.push(Token::new(
+        //                 TokenKind::Error(LexerError::TooManyHashes), 
+        //                 Span::new(start, end, self.file_id)));
+                    
+        //             diagnostics.push(Diagnostic::error()
+        //                 .with_message("too many `#` symbols")
+        //                 .with_label(Label::primary(self.file_id, start..end))
+        //                 .with_notes(vec![
+        //                     String::from("string literals can have up to 255 `#` symbols"),
+        //                     format!("expected at most 255 `#` symbols, found {len}")
+        //                 ]));
+
+        //             len = 255
+        //         }
+
+        //         let len = len as u8; // len will be <=255 by this line
+
+        //         if self.is_directly_after_ident(tokens) {
+        //             match self.lex_string_prefix(tokens, len) {
+        //                 Some(mut ds) => diagnostics.append(&mut ds),
+                        
+        //                 None => {
+        //                     tokens.push(Token::new(
+        //                         TokenKind::StringStart(StringKind::Normal, len),
+        //                         Span::new(start_pos, self.pos + 1, self.file_id)));
+        //                 }
+        //             }
+        //         } else {
+        //             tokens.push(Token::new(
+        //                 TokenKind::StringStart(StringKind::Normal, len), 
+        //                 Span::new(self.pos, self.pos + 1, self.file_id)));
+
+        //             diagnostics.append(&mut self.lex_string(tokens, self.pos, len, StringKind::Normal));
+        //         }
+        //     }
+
+        //     // Any other operator
+        //     _ => {
+        //         tokens.push(Token::new(
+        //             TokenKind::Operator,
+        //             Span::new(start_pos, self.pos, self.file_id)));
+        //     }
+        // }
+
+        diagnostics
     }
 
         // if all_hashes && matches!(self.ch, Some('"')) {
@@ -1110,7 +1169,39 @@ impl<'t> Lexer<'t> {
                 TokenKind::Tilde,
                 Span::new(self.pos, self.pos + 1, self.file_id))),
 
-            Some(_) => todo!(),
+            Some('(') => tokens.push(Token::new(
+                TokenKind::LParen, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some(')') => tokens.push(Token::new(
+                TokenKind::RParen, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some('[') => tokens.push(Token::new(
+                TokenKind::LBracket, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some(']') => tokens.push(Token::new(
+                TokenKind::RBracket, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some('{') => tokens.push(Token::new(
+                TokenKind::LBrace, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some('}') => tokens.push(Token::new(
+                TokenKind::RBrace, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some(',') => tokens.push(Token::new(
+                TokenKind::Comma, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+            
+            Some(';') => tokens.push(Token::new(
+                TokenKind::Semicolon, 
+                Span::new(self.pos, self.pos + 1, self.file_id))),
+
+            Some(c) => println!("{c}:TODO!"),
 
             None => tokens.push(Token::new(
                 TokenKind::Eof, 

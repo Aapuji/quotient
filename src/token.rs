@@ -29,8 +29,8 @@ pub enum TokenKind {
     // Keywords
     Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
     If, Then, Else, Match, With, Do, End, Using, Matches,
-    Rec, Proc, Fun, Sealed, Extends, Some, 
-    Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo,
+    Rec, Proc, Fun, Sealed, Opaque, Extends, Some, 
+    Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo, Auto, Const,
     
     // Identifiers
     Ident,
@@ -47,7 +47,7 @@ pub enum TokenKind {
     LParen, RParen,
     LBracket, RBracket,
     LBrace, RBrace,
-    Comma, Semicolon, Colon,
+    Comma, Semicolon,
     Tilde,
 
     // Operator
@@ -86,6 +86,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "proc" => TokenKind::Proc,
     "fun" => TokenKind::Fun,
     "sealed" => TokenKind::Sealed,
+    "opaque" => TokenKind::Opaque,
     "extends" => TokenKind::Extends,
     "some" => TokenKind::Some,
     "prefix" => TokenKind::Prefix,
@@ -95,8 +96,11 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "with_prec" => TokenKind::WithPrec,
     "lazy" => TokenKind::Lazy,
     "memo" => TokenKind::Memo,
+    "auto" => TokenKind::Auto,
+    "const" => TokenKind::Const,
     "true" => TokenKind::True,
-    "false" => TokenKind::False
+    "false" => TokenKind::False,
+    "unit" => TokenKind::Unit
 };
 
 bitflags! {
