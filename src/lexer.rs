@@ -403,8 +403,6 @@ impl<'t> Lexer<'t> {
                         // TODO: Support 8-len unicode escapes
                         Some('u') | 
                         Some('U') => {
-                            let ustart = self.pos;
-
                             match self.peek() {
                                 Some(_) => {
                                     let seq_start = self.pos;
@@ -543,7 +541,9 @@ impl<'t> Lexer<'t> {
                         },
 
                         // EOF
-                        None => todo!()
+                        None => {
+                            push_unterminated_error!(start_pos, self.pos);
+                        }
                     }
 
                     set_segment_start = true;
@@ -1205,7 +1205,15 @@ impl<'t> Lexer<'t> {
                 self.next();
             }
 
-            Some(c) => println!("UNKNOWN?: {c}"),
+            Some(c) => {
+                tokens.push(Token::new(
+                    TokenKind::Error(LexerError::Unknown),
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                diagnostics.push(Diagnostic::error()
+                    .with_message("unknown character")
+                    .with_label(Label::primary(self.file_id, self.pos..self.pos + 1)));
+            },
 
             None => tokens.push(Token::new(
                 TokenKind::Eof, 
@@ -1230,6 +1238,8 @@ impl<'t> Lexer<'t> {
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum LexerError {
+    // Unknown
+    Unknown,
     // Numbers
     InvalidDigit,
     NonDecimalFloatingPoint,
