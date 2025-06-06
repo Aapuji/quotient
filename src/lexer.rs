@@ -867,26 +867,45 @@ impl<'t> Lexer<'t> {
         if all_hashes {
             match self.ch {
                 // prefix###-###"..."###-###
-                Some('"') => if self.is_pos_directly_after_ident(tokens, start_pos) {
-                    match self.lex_string_with_prefix(tokens, len) {
-                        Some(mut ds) => {
-                            diagnostics.append(&mut ds)
-                        },
-                        None => {
-                            tokens.push(Token::new(
-                                TokenKind::StringStart(StringKind::Normal, len), 
-                                Span::new(start_pos, self.pos, self.file_id)));
+                Some('"') => { 
+                    let mut len = len;
 
-                            diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
-                        }
+                    if len > u8::MAX {
+                        let start = start_pos;
+                        let end = self.pos;
+
+                        tokens.push(Token::new(
+                            TokenKind::Error(LexerError::TooManyHashes),
+                            Span::new(start, end, self.file_id)));
+
+                        diagnostics.push(Diagnostic::error()
+                            .with_message("too many hashes")
+                            .with_label(Label::primary(self.file_id, start..end)));
+
+                        len = u8::MAX;
                     }
-                // ###-###"..."###-###
-                } else {
-                    tokens.push(Token::new(
-                        TokenKind::StringStart(StringKind::Normal, len), 
-                        Span::new(start_pos, self.pos, self.file_id)));
 
-                    diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
+                    if self.is_pos_directly_after_ident(tokens, start_pos) {
+                        match self.lex_string_with_prefix(tokens, len) {
+                            Some(mut ds) => {
+                                diagnostics.append(&mut ds)
+                            },
+                            None => {
+                                tokens.push(Token::new(
+                                    TokenKind::StringStart(StringKind::Normal, len), 
+                                    Span::new(start_pos, self.pos, self.file_id)));
+
+                                diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
+                            }
+                        }
+                    // ###-###"..."###-###
+                    } else {
+                        tokens.push(Token::new(
+                            TokenKind::StringStart(StringKind::Normal, len), 
+                            Span::new(start_pos, self.pos, self.file_id)));
+
+                        diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
+                    }
                 }
 
                 // #( ... )#
