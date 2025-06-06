@@ -563,7 +563,7 @@ impl<'t> Lexer<'t> {
     }
 
     /// Lexes an identifier, a keyword, an underscore operator (matching regex `_+`), or i (imaginary number).
-    fn lex_ident(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {        
+    fn lex_ident(&mut self, tokens: &mut Vec<Token>, is_directive: bool) -> Vec<Diagnostic<FileId>> {        
         let start_pos = self.pos;
         let mut all_underscores = true;
 
@@ -583,7 +583,6 @@ impl<'t> Lexer<'t> {
             self.next();
         }
 
-
         tokens.push(Token::new(
             if let Some(&keyword_kind) = KEYWORDS.get(&self.src[start_pos..self.pos]) {
                 keyword_kind
@@ -591,10 +590,22 @@ impl<'t> Lexer<'t> {
                 TokenKind::Underscore
             } else if self.pos - 1 == start_pos && &self.src[0..=0] == "i" {
                 TokenKind::Imaginary
+            } else if is_directive {
+                match &self.src[start_pos..self.pos] {
+                    "todo" => TokenKind::TodoDirective,
+                    "unreachable" => TokenKind::UnreachableDirective,
+                    "no" => TokenKind::NoDirective,
+                    "ignore" => TokenKind::IgnoreDirective,
+                    _ => TokenKind::Directive
+                }
             } else {
                 TokenKind::Ident
             }, 
-            Span::new(start_pos, self.pos, self.file_id)));
+            Span::new(if is_directive {
+                start_pos - 1
+            } else {
+                start_pos
+            }, self.pos, self.file_id)));
 
         Vec::new()
     }
@@ -855,6 +866,7 @@ impl<'t> Lexer<'t> {
 
         if all_hashes {
             match self.ch {
+                // prefix###-###"..."###-###
                 Some('"') => if self.is_pos_directly_after_ident(tokens, start_pos) {
                     match self.lex_string_with_prefix(tokens, len) {
                         Some(mut ds) => {
@@ -868,6 +880,7 @@ impl<'t> Lexer<'t> {
                             diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
                         }
                     }
+                // ###-###"..."###-###
                 } else {
                     tokens.push(Token::new(
                         TokenKind::StringStart(StringKind::Normal, len), 
@@ -875,34 +888,162 @@ impl<'t> Lexer<'t> {
 
                     diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal));
                 }
-                
-                // ---//if self.is_directly_after_ident(tokens) {
-                //     match self.lex_string_with_prefix(tokens, len) {
-                //         Some(mut ds) => diagnostics.append(&mut ds),
-                //         None => ()
-                //     }
-                // } else {
-                //     tokens.push(Token::new(
-                //         TokenKind::StringStart(StringKind::Normal, len),
-                //         Span::new(start_pos, self.pos + 1, self.file_id)));
-                    
-                //     diagnostics.append(&mut self.lex_string(tokens, start_pos, len, StringKind::Normal))
-                // }
 
-                Some('(') if len == 1 => todo!("#( ... )#"),
+                // #( ... )#
+                Some('(') if len == 1 => {
+                    while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
+                        if let None = self.ch {
+                            tokens.push(Token::new(
+                                TokenKind::Error(LexerError::UnterminatedComment),
+                                Span::new(start_pos, self.pos, self.file_id)));
 
-                _ if len == 1 => todo!("# ..."),
+                            diagnostics.push(Diagnostic::error()
+                                .with_message("unterminated block comment")
+                                .with_label(Label::primary(self.file_id, start_pos..self.pos)));
 
-                Some('(') if len == 2 => todo!("##( ... )#"),
+                            break
+                        }
+                        
+                        self.next();
+                    }
+
+                    match self.ch {
+                        Some(')') => {
+                            self.next();
+                            self.next();
+                        }
+
+                        None => (),
+
+                        _ => unreachable!()
+                    }
+
+                    tokens.push(Token::new(
+                        TokenKind::Comment,
+                        Span::new(start_pos, self.pos, self.file_id)));
+                }
+
+                // #directive
+                Some(c) if len == 1 && c.is_alphabetic() => diagnostics.append(&mut self.lex_ident(tokens, true)),
+
+                // # ...
+                _ if len == 1 => {
+                    while !matches!(self.ch, Some('\n') | None) {
+                        self.next();
+                    }
+
+                    tokens.push(Token::new(
+                        TokenKind::Comment,
+                        Span::new(start_pos, self.pos, self.file_id)));
+                }
+
+                // ##( ... )#
+                Some('(') if len == 2 => {
+                    while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
+                        if let None = self.ch {
+                            tokens.push(Token::new(
+                                TokenKind::Error(LexerError::UnterminatedComment),
+                                Span::new(start_pos, self.pos, self.file_id)));
+
+                            diagnostics.push(Diagnostic::error()
+                                .with_message("unterminated block comment")
+                                .with_label(Label::primary(self.file_id, start_pos..self.pos)));
+
+                            break
+                        }
+                        
+                        self.next();
+                    }
+
+                    match self.ch {
+                        Some(')') => {
+                            self.next();
+                            self.next();
+                        }
+
+                        None => (),
+
+                        _ => unreachable!()
+                    }
+
+                    tokens.push(Token::new(
+                        TokenKind::DocComment,
+                        Span::new(start_pos, self.pos, self.file_id)));
+                }
                 
-                _ if len == 1 => todo!("## ..."),
+                // ## ...
+                _ if len == 2 => {
+                    while !matches!(self.ch, Some('\n') | None) {
+                        self.next();
+                    }
+
+                    tokens.push(Token::new(
+                        TokenKind::DocComment,
+                        Span::new(start_pos, self.pos, self.file_id)));
+                },
                 
-                _ => todo!("####...####") 
+                // ###-###
+                _ => tokens.push(Token::new(
+                    TokenKind::Operator,
+                    Span::new(start_pos, self.pos, self.file_id))),
             }
         } else {
-            tokens.push(Token::new(
-                TokenKind::Operator,
-                Span::new(start_pos, self.pos, self.file_id)));
+            match self.ch {
+                Some('(') => match &self.src[start_pos..self.pos] {
+                    "##<" | "##^" => {
+                        while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
+                            if let None = self.ch {
+                                tokens.push(Token::new(
+                                    TokenKind::Error(LexerError::UnterminatedComment),
+                                    Span::new(start_pos, self.pos, self.file_id)));
+
+                                diagnostics.push(Diagnostic::error()
+                                    .with_message("unterminated block comment")
+                                    .with_label(Label::primary(self.file_id, start_pos..self.pos)));
+
+                                break
+                            }
+                            
+                            self.next();
+                        }
+
+                        match self.ch {
+                            Some(')') => {
+                                self.next();
+                                self.next();
+                            }
+
+                            None => (),
+
+                            _ => unreachable!()
+                        }
+
+                        tokens.push(Token::new(
+                            TokenKind::UpperDocComment,
+                            Span::new(start_pos, self.pos, self.file_id)));
+                    },
+
+                    _ => tokens.push(Token::new(
+                        TokenKind::Operator,
+                        Span::new(start_pos, self.pos, self.file_id)))
+                }
+
+                _ => match &self.src[start_pos..self.pos] {
+                    "##<" | "##^" => {
+                        while !matches!(self.ch, Some('\n') | None) {
+                            self.next();
+                        }
+
+                        tokens.push(Token::new(
+                            TokenKind::UpperDocComment,
+                            Span::new(start_pos, self.pos, self.file_id)));
+                    }
+
+                    _ => tokens.push(Token::new(
+                        TokenKind::Operator,
+                        Span::new(start_pos, self.pos, self.file_id)))
+                }
+            }
         }
 
         diagnostics
@@ -946,10 +1087,10 @@ impl<'t> Lexer<'t> {
             }
             
             // Identifiers, Keywords, Or Prefixed Strings
-            Some(c) if c.is_alphabetic() => diagnostics.append(&mut self.lex_ident(tokens)),
+            Some(c) if c.is_alphabetic() => diagnostics.append(&mut self.lex_ident(tokens, false)),
 
             // Underscore operators (satisfies regex _+), or identifier prepended by underscores
-            Some('_') => diagnostics.append(&mut self.lex_ident(tokens)),
+            Some('_') => diagnostics.append(&mut self.lex_ident(tokens, false)),
             
             // Operator Symbols (and Comments)
             // Operators satisfy the following regex: [!@$#^&|*-+=<>.:'?/][~%!@$#^&|*-+=<>.:'?/]*
@@ -973,43 +1114,79 @@ impl<'t> Lexer<'t> {
             Some('?')  |
             Some('/')  => diagnostics.append(&mut self.lex_operator(tokens)),
 
-            Some('~') => tokens.push(Token::new(
-                TokenKind::Tilde,
-                Span::new(self.pos, self.pos + 1, self.file_id))),
+            Some('~') => {
+                tokens.push(Token::new(
+                    TokenKind::Tilde,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
 
-            Some('(') => tokens.push(Token::new(
-                TokenKind::LParen, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
+            Some('(') => {
+                tokens.push(Token::new(
+                    TokenKind::LParen,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
             
-            Some(')') => tokens.push(Token::new(
-                TokenKind::RParen, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
+            Some(')') => {
+                tokens.push(Token::new(
+                    TokenKind::RParen,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
             
-            Some('[') => tokens.push(Token::new(
-                TokenKind::LBracket, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
-            
-            Some(']') => tokens.push(Token::new(
-                TokenKind::RBracket, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
-            
-            Some('{') => tokens.push(Token::new(
-                TokenKind::LBrace, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
-            
-            Some('}') => tokens.push(Token::new(
-                TokenKind::RBrace, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
-            
-            Some(',') => tokens.push(Token::new(
-                TokenKind::Comma, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
-            
-            Some(';') => tokens.push(Token::new(
-                TokenKind::Semicolon, 
-                Span::new(self.pos, self.pos + 1, self.file_id))),
+            Some('[') => {
+                tokens.push(Token::new(
+                    TokenKind::LBracket,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
 
-            Some(c) => println!("{c}:TODO!"),
+            Some(']') => {
+                tokens.push(Token::new(
+                    TokenKind::RBracket,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
+            
+            Some('{') => {
+                tokens.push(Token::new(
+                    TokenKind::LBrace,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
+            
+            Some('}') => {
+                tokens.push(Token::new(
+                    TokenKind::RBrace,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
+            
+            Some(',') => {
+                tokens.push(Token::new(
+                    TokenKind::Comma,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
+            
+            Some(';') => {
+                tokens.push(Token::new(
+                    TokenKind::Semicolon,
+                    Span::new(self.pos, self.pos + 1, self.file_id)));
+                
+                self.next();
+            }
+
+            Some(c) => println!("UNKNOWN?: {c}"),
 
             None => tokens.push(Token::new(
                 TokenKind::Eof, 
@@ -1044,5 +1221,7 @@ pub enum LexerError {
     InvalidUnicodeEscapeSequence,
     IncompatibleStringPrefixes,
     RepeatedStringPrefixes,
-    TooManyHashes
+    TooManyHashes,
+    // Comments
+    UnterminatedComment
 }

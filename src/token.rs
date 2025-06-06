@@ -29,11 +29,13 @@ pub enum TokenKind {
     // Keywords
     Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
     If, Then, Else, Match, With, Do, End, Using, Matches,
-    Rec, Proc, Fun, Sealed, Opaque, Extends, Some, 
+    Rec, Sealed, Opaque, Extends, Some, Any,
     Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo, Auto, Const,
+    TodoDirective, UnreachableDirective, NoDirective, IgnoreDirective,
     
     // Identifiers
     Ident,
+    Directive,
     
     // Literals
     Int,
@@ -55,6 +57,7 @@ pub enum TokenKind {
     Underscore, // Can be any positive number of underscores, described by the length of the span
     
     // Comments
+    Comment,
     DocComment,
     UpperDocComment,
 
@@ -83,12 +86,11 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "using" => TokenKind::Using,
     "matches" => TokenKind::Matches,
     "rec" => TokenKind::Rec,
-    "proc" => TokenKind::Proc,
-    "fun" => TokenKind::Fun,
     "sealed" => TokenKind::Sealed,
     "opaque" => TokenKind::Opaque,
     "extends" => TokenKind::Extends,
     "some" => TokenKind::Some,
+    "any" => TokenKind::Any,
     "prefix" => TokenKind::Prefix,
     "postfix" => TokenKind::Postfix,
     "lassoc" => TokenKind::LAssoc,
