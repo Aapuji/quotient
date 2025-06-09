@@ -1058,6 +1058,10 @@ impl<'t> Lexer<'t> {
                             Span::new(start_pos, self.pos, self.file_id)));
                     }
 
+                    ":" => tokens.push(Token::new(
+                        TokenKind::Colon,
+                        Span::new(start_pos, self.pos, self.file_id))),
+
                     _ => tokens.push(Token::new(
                         TokenKind::Operator,
                         Span::new(start_pos, self.pos, self.file_id)))

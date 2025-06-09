@@ -28,9 +28,9 @@ impl Token {
 pub enum TokenKind {
     // Keywords
     Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
-    If, Then, Else, Match, With, Do, End, Using, Matches,
-    Rec, Sealed, Opaque, Extends, Some, Any,
-    Prefix, Postfix, LAssoc, RAssoc, WithPrec, Lazy, Memo, Auto, Const,
+    If, Then, Else, Match, With, Do, End, Using, In, Matches, Some, Any,
+    Sealed, Opaque, Extends,
+    Prefix, Postfix, Infix, InfixLeft, InfixRight, Lazy, Memo, Auto, Const,
     TodoDirective, UnreachableDirective, NoDirective, IgnoreDirective,
     
     // Identifiers
@@ -49,7 +49,7 @@ pub enum TokenKind {
     LParen, RParen,
     LBracket, RBracket,
     LBrace, RBrace,
-    Comma, Semicolon,
+    Comma, Semicolon, Colon,
     Tilde,
 
     // Operator
@@ -84,8 +84,8 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "do" => TokenKind::Do,
     "end" => TokenKind::End,
     "using" => TokenKind::Using,
+    "in" => TokenKind::In,
     "matches" => TokenKind::Matches,
-    "rec" => TokenKind::Rec,
     "sealed" => TokenKind::Sealed,
     "opaque" => TokenKind::Opaque,
     "extends" => TokenKind::Extends,
@@ -93,9 +93,9 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "any" => TokenKind::Any,
     "prefix" => TokenKind::Prefix,
     "postfix" => TokenKind::Postfix,
-    "lassoc" => TokenKind::LAssoc,
-    "rassoc" => TokenKind::RAssoc,
-    "with_prec" => TokenKind::WithPrec,
+    "infix" => TokenKind::Infix,
+    "infixl" => TokenKind::InfixLeft,
+    "infixr" => TokenKind::InfixRight,
     "lazy" => TokenKind::Lazy,
     "memo" => TokenKind::Memo,
     "auto" => TokenKind::Auto,
@@ -117,3 +117,16 @@ bitflags! {
         const Trim      = 1 << 5;
     }
 }
+
+/*
+
+let f = x -> x + 1
+let f = \x -> x + 1
+let f = x => x + 1
+
+let f = (x, y) -> x + y
+let f = \(x, y) -> x + y
+let f = (x, y) => x + y
+
+*/
+
