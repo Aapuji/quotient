@@ -32,6 +32,10 @@ impl Span {
     pub fn file_id(&self) -> FileId {
         self.file_id
     }
+
+    pub fn resolve_content<'t>(&self, src: &'t str) -> Option<&'t str> {
+        src.get(self.range())
+    }
 }
 
 pub type FileId = usize;

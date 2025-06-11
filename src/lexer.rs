@@ -3,11 +3,11 @@ use std::iter::Peekable;
 use std::str::CharIndices;
 use std::u8;
 
-use codespan_reporting::diagnostic::{self, Diagnostic, Label};
+use codespan_reporting::diagnostic::{Diagnostic, Label};
 
 use crate::session::Session;
 use crate::source::{FileId, Span};
-use crate::token::{self, StringKind, Token, TokenKind, KEYWORDS};
+use crate::token::{StringKind, Token, TokenKind, KEYWORDS};
 
 /// Represents the Lexer.
 #[derive(Debug)]
@@ -284,6 +284,11 @@ impl<'t> Lexer<'t> {
                 diagnostics.push(Diagnostic::error()
                     .with_message("unterminated string literal")
                     .with_label(Label::primary(self.file_id, start..end)));
+            
+                tokens.push(Token::new(
+                    TokenKind::Eof,
+                    Span::new(end, end + 1, self.file_id)
+                ))
             };
         }
 
@@ -826,6 +831,22 @@ impl<'t> Lexer<'t> {
         let mut all_hashes = true;
         let mut diagnostics = Vec::new();
 
+        macro_rules! push_unterminated_error {
+            ( $start:expr, $end:expr ) => {
+                tokens.push(Token::new(
+                    TokenKind::Error(LexerError::UnterminatedComment),
+                    Span::new($start, $end, self.file_id)));
+
+                diagnostics.push(Diagnostic::error()
+                    .with_message("unterminated block comment")
+                    .with_label(Label::primary(self.file_id, $start..$end)));
+
+                tokens.push(Token::new(
+                    TokenKind::Eof,
+                    Span::new($end, $end + 1, self.file_id)));
+            };
+        }
+
         loop {
             if let Some('#') = self.ch {
                 all_hashes = all_hashes && true;
@@ -912,14 +933,7 @@ impl<'t> Lexer<'t> {
                 Some('(') if len == 1 => {
                     while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
                         if let None = self.ch {
-                            tokens.push(Token::new(
-                                TokenKind::Error(LexerError::UnterminatedComment),
-                                Span::new(start_pos, self.pos, self.file_id)));
-
-                            diagnostics.push(Diagnostic::error()
-                                .with_message("unterminated block comment")
-                                .with_label(Label::primary(self.file_id, start_pos..self.pos)));
-
+                            push_unterminated_error!(start_pos, self.pos);
                             break
                         }
                         
@@ -960,14 +974,7 @@ impl<'t> Lexer<'t> {
                 Some('(') if len == 2 => {
                     while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
                         if let None = self.ch {
-                            tokens.push(Token::new(
-                                TokenKind::Error(LexerError::UnterminatedComment),
-                                Span::new(start_pos, self.pos, self.file_id)));
-
-                            diagnostics.push(Diagnostic::error()
-                                .with_message("unterminated block comment")
-                                .with_label(Label::primary(self.file_id, start_pos..self.pos)));
-
+                            push_unterminated_error!(start_pos, self.pos);
                             break
                         }
                         
@@ -1012,14 +1019,7 @@ impl<'t> Lexer<'t> {
                     "##<" | "##^" => {
                         while !(matches!(self.ch, Some(')')) && matches!(self.peek(), Some('#'))) {
                             if let None = self.ch {
-                                tokens.push(Token::new(
-                                    TokenKind::Error(LexerError::UnterminatedComment),
-                                    Span::new(start_pos, self.pos, self.file_id)));
-
-                                diagnostics.push(Diagnostic::error()
-                                    .with_message("unterminated block comment")
-                                    .with_label(Label::primary(self.file_id, start_pos..self.pos)));
-
+                                push_unterminated_error!(start_pos, self.pos);
                                 break
                             }
                             

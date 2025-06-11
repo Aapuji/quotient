@@ -4,7 +4,7 @@ use phf::phf_map;
 use crate::lexer::LexerError;
 use crate::source::Span;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Token {
     kind: TokenKind,
     span: Span

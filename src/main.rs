@@ -1,6 +1,8 @@
+mod ast;
 mod cli;
 mod lexer;
 mod num;
+mod parser;
 mod session;
 mod source;
 mod token;
@@ -12,15 +14,15 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process;
 use codespan_reporting::files::SimpleFiles;
-use clap::Parser;
-
-use cli::Cli;
 use codespan_reporting::term::{self, Chars};
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+
+use cli::Cli;
 use lexer::Lexer;
 use session::Session;
 use source::FileId;
-use token::Token;
+
+use crate::parser::Parser;
 
 fn load_file(path: &Path) -> io::Result<(SimpleFiles<Cow<'_, str>, String>, FileId)> {
     if let Some(ext) = path.extension() {
@@ -44,7 +46,7 @@ fn load_file(path: &Path) -> io::Result<(SimpleFiles<Cow<'_, str>, String>, File
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let cli = Cli::parse();
+    let cli = { use clap::Parser; Cli::parse() };
 
     // For debugging purposes
     let filename = cli.file.as_deref().unwrap_or("stdin");
@@ -73,7 +75,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (tokens, mut diagnostics) = lexer.lex();
     session.append_diagnostics(&mut diagnostics);
 
-    println!("== Tokens ==\n{:#?}\n==Diagnostics==", tokens);
+    // Parse file
+    let mut parser = Parser::new(session.main_src(), *session.main_id(), &tokens);
+    let (asts, mut diagnostics) = parser.parse();
+    session.append_diagnostics(&mut diagnostics);
+
+    // Result logging
+    println!("== Tokens ==\n{:#?}\n== Asts ==\n{:#?}\n== Diagnostics ==", tokens, asts);
 
     let writer = StandardStream::stderr(ColorChoice::Always);
     let mut config = codespan_reporting::term::Config::default();

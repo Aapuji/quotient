@@ -1,9 +1,6 @@
-let fact : Nat -> Nat
-let fact(n) =
-    let f : Nat^2 -> Nat
-    let f(n, acc) = 
-        if n == 0 then acc
-        else f(n - 1, n * acc);
-    
-    f(n, 1)
-
+true
+false
+0
+0.0
+0i
+unit
