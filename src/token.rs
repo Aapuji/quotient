@@ -4,7 +4,7 @@ use phf::phf_map;
 use crate::lexer::LexerError;
 use crate::source::Span;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Token {
     kind: TokenKind,
     span: Span
@@ -24,10 +24,10 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub enum TokenKind {
     // Keywords
-    Let, Mut, And, Type, Class, Module, Impl, Deriving, Import, As,
+    Let, Mut, And, Also, Type, Class, Module, Impl, Deriving, Import, As,
     If, Then, Else, Match, With, Do, End, Using, In, Matches, Some, Any,
     Sealed, Opaque, Extends,
     Prefix, Postfix, Infix, InfixLeft, InfixRight, Lazy, Memo, Auto, Const,
@@ -69,6 +69,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "let" => TokenKind::Let,
     "mut" => TokenKind::Mut,
     "and" => TokenKind::And,
+    "also" => TokenKind::Also,
     "type" => TokenKind::Type,
     "class" => TokenKind::Class,
     "module" => TokenKind::Module,
@@ -106,7 +107,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
 };
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
     pub struct StringKind : u8 {
         const Normal    = 0;
         const Byte      = 1;

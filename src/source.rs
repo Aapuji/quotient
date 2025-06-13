@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 /// Represents some span of text in a source file.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     start: usize,
     end: usize, // starting pos of next character

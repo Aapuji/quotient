@@ -16,16 +16,24 @@
 //     Eq(Symbol)
 // }
 
-use crate::num::{Int, Real, Complex};
+use crate::{num::{Complex, Int, Real}, token::Token};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TopLevel {
     Expr(Expr),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum OpListItem {
+    Expr(Box<Expr>),
+    Operation(Token)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
-    Literal(Literal)
+    Literal(Literal),
+    Chain(Box<Expr>, Box<Expr>),
+    OperationList(Vec<OpListItem>)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

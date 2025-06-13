@@ -825,7 +825,7 @@ impl<'t> Lexer<'t> {
 
     /// Lexes an operator, a doc comment, a regular comment, a directive, or initiates a string (if it is all `#`s and is immediately followed by `"`).
     /// 
-    /// Should be called when the current character satisfies `[!@$#^&|*-+=<>.:'?/]` ~%!@$#^&|*-+=<>.:'?/
+    /// Should be called when the current character satisfies `[~%!@$#^&|*-+=<>.:'?/~]`. If the operator is just #, ##, ##^, ##<, ~, or %, those are reserved (first 4 are comments, then named argument signifier, then a reserved operator for future use), they will be lexed into their own tokens.
     fn lex_operator(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
         let start_pos = self.pos;
         let mut all_hashes = true;
@@ -1062,6 +1062,10 @@ impl<'t> Lexer<'t> {
                         TokenKind::Colon,
                         Span::new(start_pos, self.pos, self.file_id))),
 
+                    "~" => tokens.push(Token::new(
+                        TokenKind::Tilde,
+                        Span::new(start_pos, self.pos, self.file_id))),
+
                     _ => tokens.push(Token::new(
                         TokenKind::Operator,
                         Span::new(start_pos, self.pos, self.file_id)))
@@ -1116,8 +1120,16 @@ impl<'t> Lexer<'t> {
             Some('_') => diagnostics.append(&mut self.lex_ident(tokens, false)),
             
             // Operator Symbols (and Comments)
-            // Operators satisfy the following regex: [!@$#^&|*-+=<>.:'?/][~%!@$#^&|*-+=<>.:'?/]*
+            // Operators satisfy the following regex: [~%!@$#^&|*-+=<>.:'?/][~%!@$#^&|*-+=<>.:'?/]*
+            // Reserved operators are #, ##, ##<, ##^, ~, and %
+            //      #       - comment
+            //      ##      - doc comment
+            //      ##^ ##< - upper doc comment
+            //      ~       - named argument separator
+            //      %       - reserved for future use
             // Valid comment signifiers are: #, #(, ##, ##(, ##<, ##^, ##<(, ##^(
+            Some('~')  |
+            Some('%')  |
             Some('!')  |
             Some('@')  |
             Some('$')  |
@@ -1136,14 +1148,6 @@ impl<'t> Lexer<'t> {
             Some('\'') |
             Some('?')  |
             Some('/')  => diagnostics.append(&mut self.lex_operator(tokens)),
-
-            Some('~') => {
-                tokens.push(Token::new(
-                    TokenKind::Tilde,
-                    Span::new(self.pos, self.pos + 1, self.file_id)));
-                
-                self.next();
-            }
 
             Some('(') => {
                 tokens.push(Token::new(
@@ -1215,7 +1219,7 @@ impl<'t> Lexer<'t> {
                     Span::new(self.pos, self.pos + 1, self.file_id)));
                 
                 diagnostics.push(Diagnostic::error()
-                    .with_message("unknown character")
+                    .with_message(format!("unknown character: {c}"))
                     .with_label(Label::primary(self.file_id, self.pos..self.pos + 1)));
             },
 
@@ -1240,7 +1244,7 @@ impl<'t> Lexer<'t> {
     }
 } 
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub enum LexerError {
     // Unknown
     Unknown,
