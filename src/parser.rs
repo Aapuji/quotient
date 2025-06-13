@@ -176,21 +176,6 @@ impl<'s, 't> Parser<'s, 't> {
                 self.parse_operators(operator_list, diagnostics)
             }
         }
-
-
-        // if let Some(x) = expr {
-        //     operator_list.push(OpListItem::Expr(Box::new(x)));
-
-        //     if let Some(TokenKind::Operator) = self.current_kind() {
-        //         self.parse_operators(operator_list, diagnostics)
-        //     } else {
-        //         Expr::OperationList(operator_list)
-        //     }
-        // } else if let Some(TokenKind::Operator) = self.current_kind() {
-        //     self.parse_operators(operator_list, diagnostics)
-        // } else {
-        //     expr.expect("expected expression [expect]")
-        // }
     }
 
     fn parse_grouping(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
