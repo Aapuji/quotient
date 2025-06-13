@@ -825,7 +825,7 @@ impl<'t> Lexer<'t> {
 
     /// Lexes an operator, a doc comment, a regular comment, a directive, or initiates a string (if it is all `#`s and is immediately followed by `"`).
     /// 
-    /// Should be called when the current character satisfies `[~%!@$#^&|*-+=<>.:'?/~]`. If the operator is just #, ##, ##^, ##<, ~, or %, those are reserved (first 4 are comments, then named argument signifier, then a reserved operator for future use), they will be lexed into their own tokens.
+    /// Should be called when the current character satisfies `[~%!@$#^&|*-+=<>.:'?/]`. If the operator is just #, ##, ##^, ##<, ~, or %, those are reserved (first 4 are comments, then named argument signifier, then a reserved operator for future use), they will be lexed into their own tokens.
     fn lex_operator(&mut self, tokens: &mut Vec<Token>) -> Vec<Diagnostic<FileId>> {
         let start_pos = self.pos;
         let mut all_hashes = true;
