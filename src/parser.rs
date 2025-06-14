@@ -60,6 +60,14 @@ impl<'s, 't> Parser<'s, 't> {
             .unwrap_or(false)
     }
 
+    fn consume(&mut self, kind: TokenKind) -> Option<Token> {
+        if self.at(kind) {
+            self.next()
+        } else {
+            todo!("expected {:?}", kind)
+        }
+    }
+
     fn at_end(&self) -> bool {
         self.current().is_none() || self.current().unwrap().kind() == &TokenKind::Eof
     }
@@ -69,7 +77,7 @@ impl<'s, 't> Parser<'s, 't> {
     }
 
     fn parse_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
-        let mut expr = self.parse_no_chain_expr(vec![], diagnostics);
+        let mut expr = self.parse_no_chain_expr(diagnostics);
 
         while self.at(TokenKind::Semicolon) {
             self.next();
@@ -81,32 +89,102 @@ impl<'s, 't> Parser<'s, 't> {
         expr
     }
 
-    fn parse_no_chain_expr(&mut self, mut operator_list: Vec<OpListItem>, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
-        let expr = match self.current_tk() {
-            Some((_, TokenKind::LParen)) => Some(self.parse_grouping(diagnostics)),
-            Some((_, TokenKind::Do)) => Some(self.parse_do_expr(diagnostics)),
+    fn parse_no_chain_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
+        let expr = self.parse_operators(diagnostics);
+
+        expr
+    }
+
+    fn parse_operators(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {        
+        let mut operator_list = Vec::with_capacity(2);
+        
+        while !self.at_end() {
+            if let Some((t, TokenKind::Operator)) = self.current_tk() {
+                operator_list.push(OpListItem::Operation(t));
+
+                self.next();
+            } else if operator_list.is_empty() {
+                let expr = if let Ok(x) = self.parse_primary(diagnostics) {
+                    x
+                } else {
+                    panic!("[uh oh ope] expected primary expression")
+                };
+
+                if let Some(TokenKind::Operator) = self.current_kind() {
+                    operator_list.push(OpListItem::Expr(Box::new(expr)));
+                    continue
+                } else {
+                    return expr;
+                }
+            } else {
+                if let Ok(x) = self.parse_primary(diagnostics) {
+                    operator_list.push(OpListItem::Expr(Box::new(x)));
+                } else {
+                    break
+                }
+
+                if !self.at_end() {
+                    if let Some(TokenKind::Operator) = self.current_kind() {
+                        continue
+                    } else {
+                        if let Ok(x) = self.parse_primary(diagnostics) {
+                            operator_list.push(OpListItem::Expr(Box::new(x)));
+                        } else {
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        
+        Expr::OperationList(operator_list)
+        
+        
+        
+        // let expr = if let Some((t, TokenKind::Operator)) = self.current_tk() {
+        //     operator_list.push(OpListItem::Operation(t));
+
+        //     self.next();
+
+        //     if !self.at_end() {
+        //         self.parse_no_chain_expr(operator_list, diagnostics)
+        //     } else {
+        //         Expr::OperationList(operator_list)
+        //     }
+        // } else {
+        //     self.parse_primary(diagnostics)
+        // };
+    }
+
+    /// Attempts to parse a primary expression. If it fails, it outputs an error. This diesn't mean it is an invalid expression, only that it is an invalid _primary_ expression.
+    fn parse_primary(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Result<Expr, ()> {
+        Ok(match self.current_tk() {
+            Some((_, TokenKind::LParen)) => {
+                todo!()
+            },
+            // Some((_, TokenKind::Do)) => Some(self.parse_do_expr(diagnostics)),
 
             // Literals
             Some((t, TokenKind::Int)) => {
                 self.next();
 
-                Some(Expr::Literal(Literal::Int(t
+                Expr::Literal(Literal::Int(t
                     .span()
                     .resolve_content(self.src)
                     .unwrap() // perhaps add checking here, though there shouldn't be problem as tokens should be from same file
                     .parse()
-                    .unwrap())))
+                    .unwrap()))
             }
 
             Some((t, TokenKind::Real)) => {
                 self.next();
 
-                Some(Expr::Literal(Literal::Real(t
+                Expr::Literal(Literal::Real(t
                     .span()
                     .resolve_content(self.src)
                     .unwrap()
                     .parse()
-                    .unwrap())))
+                    .unwrap()))
             }
 
             Some((t, TokenKind::Imaginary)) => {
@@ -120,87 +198,36 @@ impl<'s, 't> Parser<'s, 't> {
 
                 s.next_back();
 
-                Some(Expr::Literal(Literal::Imaginary(s
+                Expr::Literal(Literal::Imaginary(s
                     .as_str()
                     .parse()
-                    .unwrap())))
+                    .unwrap()))
             }
 
             Some((t, TokenKind::True)) => {
                 self.next();
 
-                Some(Expr::Literal(Literal::Bool(true)))
+                Expr::Literal(Literal::Bool(true))
             }
 
             Some((t, TokenKind::False)) => {
                 self.next();
                 
-                Some(Expr::Literal(Literal::Bool(false)))
+                Expr::Literal(Literal::Bool(false))
             }
 
             Some((t, TokenKind::Unit)) => {
                 self.next();
                 
-                Some(Expr::Literal(Literal::Unit))
+                Expr::Literal(Literal::Unit)
             }
 
-            Some((t, TokenKind::Operator)) => None,
-
-            Some(_) => panic!("uh oh nocha {:?}", self.current()),
-
-            None => todo!("expected expression")
-            // } Expr::Literal(self.parse_literal(diagnostics))
-        };
-
-        if operator_list.is_empty() {
-            if let Some(x) = expr {
-                if let Some(TokenKind::Operator) = self.current_kind() {
-                    operator_list.push(OpListItem::Expr(Box::new(x)));
-
-                    self.parse_operators(operator_list, diagnostics)
-                } else {
-                    x
-                }
-            } else {
-                self.parse_operators(operator_list, diagnostics)
-            }
-        } else {
-            if let Some(x) = expr {
-                operator_list.push(OpListItem::Expr(Box::new(x)));
-                if let Some(TokenKind::Operator) = self.current_kind() {
-                    self.parse_operators(operator_list, diagnostics)
-                } else {
-                    Expr::OperationList(operator_list)
-                }
-            } else {
-                self.parse_operators(operator_list, diagnostics)
-            }
-        }
-    }
-
-    fn parse_grouping(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
-        todo!()
+            _ => Err(())?,
+        })
     }
 
     fn parse_do_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
         todo!()
-    }
-
-    /// Should be called when current's kind is `TokenKind::Operator`
-    fn parse_operators(&mut self, mut operator_list: Vec<OpListItem>, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {        
-        if let Some((t, TokenKind::Operator)) = self.current_tk() {
-            operator_list.push(OpListItem::Operation(t));
-
-            self.next();
-
-            if !self.at_end() {
-                self.parse_no_chain_expr(operator_list, diagnostics)
-            } else {
-                Expr::OperationList(operator_list)
-            }
-        } else {
-            panic!("invalid call");
-        }
     }
 
     fn recover(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> () {
