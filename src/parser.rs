@@ -138,31 +138,58 @@ impl<'s, 't> Parser<'s, 't> {
         }
         
         Expr::OperationList(operator_list)
-        
-        
-        
-        // let expr = if let Some((t, TokenKind::Operator)) = self.current_tk() {
-        //     operator_list.push(OpListItem::Operation(t));
-
-        //     self.next();
-
-        //     if !self.at_end() {
-        //         self.parse_no_chain_expr(operator_list, diagnostics)
-        //     } else {
-        //         Expr::OperationList(operator_list)
-        //     }
-        // } else {
-        //     self.parse_primary(diagnostics)
-        // };
     }
 
     /// Attempts to parse a primary expression. If it fails, it outputs an error. This diesn't mean it is an invalid expression, only that it is an invalid _primary_ expression.
     fn parse_primary(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Result<Expr, ()> {
         Ok(match self.current_tk() {
             Some((_, TokenKind::LParen)) => {
-                todo!()
-            },
-            // Some((_, TokenKind::Do)) => Some(self.parse_do_expr(diagnostics)),
+                self.next();
+
+                if let Some(TokenKind::RParen) = self.current_kind() {
+                    return Ok(Expr::Literal(Literal::Unit));
+                }
+
+                let expr = self.parse_expr(diagnostics);
+
+                match self.current_kind() {
+                    // Grouping
+                    Some(TokenKind::RParen) => {
+                        self.next();
+
+                        expr
+                    }
+
+                    // Tuple
+                    Some(TokenKind::Comma) => {
+                        self.next();
+                        
+                        let mut elems = vec![expr, self.parse_expr(diagnostics)];
+
+                        while let Some(TokenKind::Comma) = self.current_kind() {
+                            self.next();
+
+                            elems.push(self.parse_expr(diagnostics));
+                        }
+
+                        self.consume(TokenKind::RParen);
+
+                        Expr::Tuple(elems)
+                    }
+
+                    _ => todo!("report -- expected ')' found {:?}", self.current())
+                }
+            }
+
+            Some((_, TokenKind::Do)) => {
+                self.next();
+
+                let expr = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::End);
+
+                Expr::Block(Box::new(expr))
+            }
 
             // Literals
             Some((t, TokenKind::Int)) => {
@@ -204,30 +231,32 @@ impl<'s, 't> Parser<'s, 't> {
                     .unwrap()))
             }
 
-            Some((t, TokenKind::True)) => {
+            Some((_, TokenKind::True)) => {
                 self.next();
 
                 Expr::Literal(Literal::Bool(true))
             }
 
-            Some((t, TokenKind::False)) => {
+            Some((_, TokenKind::False)) => {
                 self.next();
                 
                 Expr::Literal(Literal::Bool(false))
             }
 
-            Some((t, TokenKind::Unit)) => {
+            Some((_, TokenKind::Unit)) => {
                 self.next();
                 
                 Expr::Literal(Literal::Unit)
             }
 
+            Some((t, TokenKind::LBracket)) => {
+                self.next();
+
+                todo!("vector & matrix")
+            }
+
             _ => Err(())?,
         })
-    }
-
-    fn parse_do_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
-        todo!()
     }
 
     fn recover(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> () {

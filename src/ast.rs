@@ -32,8 +32,10 @@ pub enum OpListItem {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Literal(Literal),
+    Block(Box<Expr>),
+    Tuple(Vec<Expr>),
     Chain(Box<Expr>, Box<Expr>),
-    OperationList(Vec<OpListItem>)
+    OperationList(Vec<OpListItem>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
