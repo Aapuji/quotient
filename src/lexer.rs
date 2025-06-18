@@ -593,7 +593,7 @@ impl<'t> Lexer<'t> {
                 keyword_kind
             } else if all_underscores {
                 TokenKind::Underscore
-            } else if self.pos - 1 == start_pos && &self.src[0..=0] == "i" {
+            } else if &self.src[start_pos..self.pos] == "i" {
                 TokenKind::Imaginary
             } else if is_directive {
                 match &self.src[start_pos..self.pos] {

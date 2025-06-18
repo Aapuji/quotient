@@ -26,7 +26,8 @@ pub enum TopLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OpListItem {
     Expr(Box<Expr>),
-    Operation(Token)
+    Operation(Token),
+    ParenGroup(Vec<Option<Expr>>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

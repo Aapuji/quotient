@@ -3,7 +3,7 @@ use std::{num::ParseIntError, str::FromStr};
 use ordered_float::NotNan;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Int(i64);
+pub struct Int(pub i64);
 
 impl FromStr for Int {
     type Err = <i64 as FromStr>::Err;
@@ -14,7 +14,7 @@ impl FromStr for Int {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Real(NotNan<f64>);
+pub struct Real(pub NotNan<f64>);
 
 impl FromStr for Real {
     type Err = <NotNan<f64> as FromStr>::Err;
@@ -25,7 +25,7 @@ impl FromStr for Real {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Complex(NotNan<f64>, NotNan<f64>);
+pub struct Complex(pub NotNan<f64>, pub NotNan<f64>);
 
 // Is actually for imaginary
 impl FromStr for Complex {

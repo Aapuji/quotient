@@ -1,6 +1,6 @@
 use codespan_reporting::diagnostic::Diagnostic;
 
-use crate::{ast::{Expr, Literal, OpListItem, TopLevel}, source::FileId, token::{Token, TokenKind}};
+use crate::{ast::{Expr, Literal, OpListItem, TopLevel}, num::Complex, source::FileId, token::{Token, TokenKind}};
 
 #[derive(Debug, Clone)]
 pub struct Parser<'s, 't> {
@@ -107,18 +107,18 @@ impl<'s, 't> Parser<'s, 't> {
                 let expr = if let Ok(x) = self.parse_primary(diagnostics) {
                     x
                 } else {
-                    panic!("[uh oh ope] expected primary expression")
+                    panic!("[uh oh ope] expected primary expression at {:?}", self.current())
                 };
 
-                if let Some(TokenKind::Operator) = self.current_kind() {
-                    operator_list.push(OpListItem::Expr(Box::new(expr)));
-                    continue
-                } else {
-                    return expr;
+                match self.current_kind() {
+                    Some(TokenKind::Operator) |
+                    Some(TokenKind::LParen)   => operator_list.push(OpListItem::Expr(Box::new(expr))),
+
+                    _ => return expr
                 }
             } else {
-                if let Ok(x) = self.parse_primary(diagnostics) {
-                    operator_list.push(OpListItem::Expr(Box::new(x)));
+                if let Ok(item) = self.parse_primary_in_oplist(diagnostics) {
+                    operator_list.push(item);
                 } else {
                     break
                 }
@@ -127,8 +127,8 @@ impl<'s, 't> Parser<'s, 't> {
                     if let Some(TokenKind::Operator) = self.current_kind() {
                         continue
                     } else {
-                        if let Ok(x) = self.parse_primary(diagnostics) {
-                            operator_list.push(OpListItem::Expr(Box::new(x)));
+                        if let Ok(item) = self.parse_primary_in_oplist(diagnostics) {
+                            operator_list.push(item);
                         } else {
                             break
                         }
@@ -138,6 +138,49 @@ impl<'s, 't> Parser<'s, 't> {
         }
         
         Expr::OperationList(operator_list)
+    }
+
+    /// If it is at a `(` (or `[`) and inside an operator list, then it instead parses it as an `OpListItem::ParenGroup` (or `OpListItem::BracketGroup`), otherwise delegates to `parse_primary`.
+    fn parse_primary_in_oplist(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Result<OpListItem, ()> {
+        match self.current_kind() {
+            Some(TokenKind::LParen) => {
+                self.next();
+
+                // case "()"
+                if let Some(TokenKind::RParen) = self.current_kind() {
+                    self.next();
+
+                    return Ok(OpListItem::ParenGroup(vec![]));
+                }
+
+                let mut elems = vec![];
+                let mut expr = None;
+                loop {
+                    match self.current_kind() {
+                        Some(TokenKind::RParen) => {
+                            elems.push(expr);
+                            self.next();
+                            break
+                        }
+
+                        Some(TokenKind::Comma) => {
+                            elems.push(expr);
+                            expr = None;
+                            self.next();
+                        }
+
+                        _ if self.at_end() => todo!("report -- unterminated parenthetical group"),
+
+                        _ => {
+                            expr = Some(self.parse_expr(diagnostics))
+                        }
+                    }
+                }
+
+                Ok(OpListItem::ParenGroup(elems))
+            }
+            _ => self.parse_primary(diagnostics).map(|x| OpListItem::Expr(Box::new(x)))
+        }
     }
 
     /// Attempts to parse a primary expression. If it fails, it outputs an error. This diesn't mean it is an invalid expression, only that it is an invalid _primary_ expression.
@@ -224,11 +267,19 @@ impl<'s, 't> Parser<'s, 't> {
                     .chars();
 
                 s.next_back();
+                
+                let s = s.as_str();
 
-                Expr::Literal(Literal::Imaginary(s
-                    .as_str()
+                // case i
+                if s.len() == 0 {
+                    Expr::Literal(Literal::Imaginary(
+                        Complex(0.into(), 1.into())
+                    ))
+                } else {
+                    Expr::Literal(Literal::Imaginary(s
                     .parse()
                     .unwrap()))
+                }
             }
 
             Some((_, TokenKind::True)) => {
