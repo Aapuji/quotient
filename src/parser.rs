@@ -1,6 +1,6 @@
 use codespan_reporting::diagnostic::Diagnostic;
 
-use crate::{ast::{Expr, Literal, OpListItem, TopLevel}, num::Complex, source::FileId, token::{Token, TokenKind}};
+use crate::{ast::{Expr, GenericSymbol, Let, Literal, OpListItem, Pattern, TopLevel}, num::Complex, source::FileId, token::{Token, TokenKind}};
 
 #[derive(Debug, Clone)]
 pub struct Parser<'s, 't> {
@@ -26,11 +26,11 @@ impl<'s, 't> Parser<'s, 't> {
     }
 
     fn current_kind(&self) -> Option<TokenKind> {
-        self.current().map(|t| *t.kind())
+        self.current().map(|t| t.kind())
     }
 
     fn current_tk(&self) -> Option<(Token, TokenKind)> {
-        self.current().map(|t| (t, *t.kind()))
+        self.current().map(|t| (t, t.kind()))
     }
 
     fn peek(&self) -> Option<Token> {
@@ -44,7 +44,7 @@ impl<'s, 't> Parser<'s, 't> {
             self.ptr += 1;
 
             token = self.tokens.get(self.ptr).copied();
-            if token.is_some() && token.unwrap().kind() == &TokenKind::Comment {
+            if token.is_some() && token.unwrap().kind() == TokenKind::Comment {
                 ()
             } else {
                 break
@@ -56,7 +56,7 @@ impl<'s, 't> Parser<'s, 't> {
 
     fn at(&self, kind: TokenKind) -> bool {
         self.current()
-            .map(|t| t.kind() == &kind)
+            .map(|t| t.kind() == kind)
             .unwrap_or(false)
     }
 
@@ -64,16 +64,39 @@ impl<'s, 't> Parser<'s, 't> {
         if self.at(kind) {
             self.next()
         } else {
-            todo!("expected {:?}", kind)
+            todo!("report -- expected {:?} found {:?}", kind, self.current_kind())
+        }
+    }
+
+    fn consume_op(&mut self, operator: &str) -> Option<Token> {
+        if self.at(TokenKind::Operator) && operator == self.current().unwrap().span().resolve_content(&self.src).unwrap() {
+            self.next()
+        } else {
+            todo!("report -- expected {:?} found {:?}", operator, self.current())
         }
     }
 
     fn at_end(&self) -> bool {
-        self.current().is_none() || self.current().unwrap().kind() == &TokenKind::Eof
+        self.current().is_none() || self.current().unwrap().kind() == TokenKind::Eof
     }
 
     fn parse_top(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Option<TopLevel> {
         Some(TopLevel::Expr(self.parse_expr(diagnostics)))
+    }
+
+    fn parse_let(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Let {
+        self.consume(TokenKind::Let);
+
+        let pat = self.parse_pattern(diagnostics);
+
+        self.consume_op("=");
+
+        let expr = self.parse_expr(diagnostics);
+
+        Let {
+            lhs: pat,
+            rhs: Box::new(expr)
+        }
     }
 
     fn parse_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
@@ -89,10 +112,12 @@ impl<'s, 't> Parser<'s, 't> {
         expr
     }
 
-    fn parse_no_chain_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
-        let expr = self.parse_operators(diagnostics);
 
-        expr
+    fn parse_no_chain_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
+        match self.current_kind() {
+            Some(TokenKind::Let) => Expr::Let(self.parse_let(diagnostics)),
+            _ => self.parse_operators(diagnostics)
+        }
     }
 
     fn parse_operators(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {        
@@ -206,6 +231,12 @@ impl<'s, 't> Parser<'s, 't> {
                     // Tuple
                     Some(TokenKind::Comma) => {
                         self.next();
+
+                        if let Some(TokenKind::RParen) = self.current_kind() {
+                            self.next();
+
+                            return Ok(Expr::Tuple(vec![expr]))
+                        }
                         
                         let mut elems = vec![expr, self.parse_expr(diagnostics)];
 
@@ -300,14 +331,81 @@ impl<'s, 't> Parser<'s, 't> {
                 Expr::Literal(Literal::Unit)
             }
 
-            Some((t, TokenKind::LBracket)) => {
+            Some((_, TokenKind::LBracket)) => {
                 self.next();
 
                 todo!("vector & matrix")
             }
+            
+            // Symbols
+            Some((t, TokenKind::Ident)) => {
+                let expr = Expr::Symbol(GenericSymbol::SymbolToken(t));
+
+                self.next();
+
+                expr
+            }
 
             _ => Err(())?,
         })
+    }
+
+    fn parse_pattern(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        match self.current_tk() {
+            Some((t, TokenKind::Ident)) => {
+                self.next();
+
+                Pattern::Binding(GenericSymbol::SymbolToken(t))
+            }
+
+            Some((_, TokenKind::LParen)) => {
+                self.next();
+
+                // case ()
+                if let Some(TokenKind::RParen) = self.current_kind() {
+                    return Pattern::Literal(Literal::Unit);
+                }
+
+                let pat = self.parse_pattern(diagnostics);
+
+                match self.current_kind() {
+                    Some(TokenKind::RParen) => {
+                        self.next();
+
+                        pat
+                    }
+
+                    Some(TokenKind::Comma) => {
+                        self.next();
+
+                        // case (p,)
+                        if let Some(TokenKind::RParen) = self.current_kind() {
+                            self.next();
+
+                            Pattern::Tuple(vec![pat])
+                        } else {
+                            // case (p1, p2, ...)
+                            let mut patterns = vec![];
+                            loop {
+                                patterns.push(self.parse_pattern(diagnostics));
+                                
+                                match self.current_kind() {
+                                    Some(TokenKind::Comma) => { self.next(); }
+                                    Some(TokenKind::RParen) => { self.next(); break }
+                                    _ => todo!("report -- expected ')' found {:?}", self.current())
+                                }
+                            }
+
+                            Pattern::Tuple(patterns)
+                        }
+                    }
+
+                    _ => todo!("report -- expected ')', found {:?}", self.current())
+                }              
+            }
+
+            _ => todo!("report -- expected pattern, found {:?}", self.current())
+        }
     }
 
     fn recover(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> () {

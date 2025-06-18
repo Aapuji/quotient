@@ -15,12 +15,12 @@ impl Token {
         Self { kind, span }
     }
 
-    pub fn kind(&self) -> &TokenKind {
-        &self.kind
+    pub fn kind(&self) -> TokenKind {
+        self.kind
     }
 
-    pub fn span(&self) -> &Span {
-        &self.span
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -118,16 +118,3 @@ bitflags! {
         const Trim      = 1 << 5;
     }
 }
-
-/*
-
-let f = x -> x + 1
-let f = \x -> x + 1
-let f = x => x + 1
-
-let f = (x, y) -> x + y
-let f = \(x, y) -> x + y
-let f = (x, y) => x + y
-
-*/
-

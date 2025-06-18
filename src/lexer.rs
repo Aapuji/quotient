@@ -622,7 +622,7 @@ impl<'t> Lexer<'t> {
     fn is_pos_directly_after_ident(&self, tokens: &Vec<Token>, pos: usize) -> bool {
         tokens
             .last()
-            .map_or_else(|| false, |t| t.kind() == &TokenKind::Ident && t.span().end() == pos)
+            .map_or_else(|| false, |t| t.kind() == TokenKind::Ident && t.span().end() == pos)
     }
 
     /// Validates and records a string prefix, and pushes the correct string start token. Then it calls `lex_string`.
@@ -637,8 +637,8 @@ impl<'t> Lexer<'t> {
             return None
         };
 
-        let kind = *last.kind();
-        let span = *last.span();
+        let kind = last.kind();
+        let span = last.span();
 
         if kind != TokenKind::Ident {
             return None;
