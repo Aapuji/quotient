@@ -60,11 +60,21 @@ pub enum Literal {
 pub enum Pattern {
     Literal(Literal),
     Binding(GenericSymbol),
-    Tuple(Vec<Pattern>)
+    Tuple(Vec<Pattern>),
+    // record here as well
+    Pin(Expr), // a pin pattern here is one that holds an expression. In other places that expect an expression, a pin is valid too, but will be parsed as that expression, skipping the pin node.
+    Not(Box<Pattern>),
+    Typed(Box<Pattern>, Expr),
+    Cons(Box<Pattern>, Box<Pattern>),
+    As(GenericSymbol, Box<Pattern>),
+    View(Expr, Box<Pattern>),
+    And(Box<Pattern>, Box<Pattern>),
+    With(Box<Pattern>, Vec<(GenericSymbol, Expr)>), // expressions here are required to be pinned, but the pins will be skipped
+    Or(Box<Pattern>, Box<Pattern>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Let {
-    pub lhs: Pattern,
+    pub lhs: Box<Pattern>,
     pub rhs: Box<Expr>
 }

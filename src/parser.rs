@@ -60,6 +60,35 @@ impl<'s, 't> Parser<'s, 't> {
             .unwrap_or(false)
     }
 
+    /// Check if at an operator.
+    /// 
+    /// NOTE: Cannot be used for colons, semicolons, commas, tildes, parens, brackets, and braces.
+    fn at_op(&self, op: &str) -> bool {
+        self.at(TokenKind::Operator) && op == self.current()
+                .unwrap()
+                .span()
+                .resolve_content(self.src)
+                .unwrap()
+    }
+
+    fn at_end(&self) -> bool {
+        self.current().is_none() || self.current().unwrap().kind() == TokenKind::Eof
+    }
+
+    fn next_is(&self, kind: TokenKind) -> bool {
+        self.peek()
+            .map(|t| t.kind())
+            .map_or_else(|| false, |k| k == kind)
+    }
+
+    fn next_is_op(&self, op: &str) -> bool {
+        self.next_is(TokenKind::Operator) && op == self.peek()
+            .unwrap()
+            .span()
+            .resolve_content(self.src)
+            .unwrap()
+    }
+
     fn consume(&mut self, kind: TokenKind) -> Option<Token> {
         if self.at(kind) {
             self.next()
@@ -68,16 +97,12 @@ impl<'s, 't> Parser<'s, 't> {
         }
     }
 
-    fn consume_op(&mut self, operator: &str) -> Option<Token> {
-        if self.at(TokenKind::Operator) && operator == self.current().unwrap().span().resolve_content(&self.src).unwrap() {
+    fn consume_op(&mut self, op: &str) -> Option<Token> {
+        if self.at_op(op) {
             self.next()
         } else {
-            todo!("report -- expected {:?} found {:?}", operator, self.current())
+            todo!("report -- expected {:?} found {:?}", op, self.current())
         }
-    }
-
-    fn at_end(&self) -> bool {
-        self.current().is_none() || self.current().unwrap().kind() == TokenKind::Eof
     }
 
     fn parse_top(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Option<TopLevel> {
@@ -87,14 +112,14 @@ impl<'s, 't> Parser<'s, 't> {
     fn parse_let(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Let {
         self.consume(TokenKind::Let);
 
-        let pat = self.parse_pattern(diagnostics);
+        let pat = self.parse_pat(diagnostics);
 
         self.consume_op("=");
 
         let expr = self.parse_expr(diagnostics);
 
         Let {
-            lhs: pat,
+            lhs: Box::new(pat),
             rhs: Box::new(expr)
         }
     }
@@ -129,7 +154,7 @@ impl<'s, 't> Parser<'s, 't> {
 
                 self.next();
             } else if operator_list.is_empty() {
-                let expr = if let Ok(x) = self.parse_primary(diagnostics) {
+                let expr = if let Ok(x) = self.parse_primary_expr(diagnostics) {
                     x
                 } else {
                     panic!("[uh oh ope] expected primary expression at {:?}", self.current())
@@ -204,12 +229,12 @@ impl<'s, 't> Parser<'s, 't> {
 
                 Ok(OpListItem::ParenGroup(elems))
             }
-            _ => self.parse_primary(diagnostics).map(|x| OpListItem::Expr(Box::new(x)))
+            _ => self.parse_primary_expr(diagnostics).map(|x| OpListItem::Expr(Box::new(x)))
         }
     }
 
     /// Attempts to parse a primary expression. If it fails, it outputs an error. This diesn't mean it is an invalid expression, only that it is an invalid _primary_ expression.
-    fn parse_primary(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Result<Expr, ()> {
+    fn parse_primary_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Result<Expr, ()> {
         Ok(match self.current_tk() {
             Some((_, TokenKind::LParen)) => {
                 self.next();
@@ -350,7 +375,188 @@ impl<'s, 't> Parser<'s, 't> {
         })
     }
 
-    fn parse_pattern(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+    fn parse_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        self.parse_or_pat(diagnostics)
+    }
+
+    fn parse_or_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        let lhs = self.parse_with_pat(diagnostics);
+
+        if self.at_op("|") {
+            self.next();
+            let rhs = self.parse_or_pat(diagnostics);
+
+            Pattern::Or(Box::new(lhs), Box::new(rhs))
+        } else {
+            lhs
+        }
+    }
+
+    fn parse_with_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        let pat = self.parse_and_pat(diagnostics);
+
+        if self.at(TokenKind::With) {
+            todo!()
+        } else {
+            pat
+        }
+    }
+
+    fn parse_and_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        let lhs = self.parse_view_pat(diagnostics);
+
+        if self.at_op("&") {
+            self.next();
+            
+            let rhs = self.parse_and_pat(diagnostics);
+
+            Pattern::And(Box::new(lhs), Box::new(rhs))
+        } else {
+            lhs
+        }
+    }
+
+    fn parse_view_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        if self.at(TokenKind::Ident) {
+            let tok = self.current().unwrap();
+
+            // case "f -> " 
+            if self.next_is_op("->") {
+                    self.next();
+                    self.next();
+
+                    let rhs = self.parse_view_pat(diagnostics);
+
+                    Pattern::View(Expr::Symbol(GenericSymbol::SymbolToken(tok)), Box::new(rhs))
+            // just ident; fallback to next stage of pattern parsing
+            } else {
+                self.parse_as_pat(diagnostics)
+            }
+        } else if self.at_op("$") {
+            let pin = self.parse_pin_pat(diagnostics);
+
+            // case "$... ->" 
+            if self.at_op("->") {
+                self.next();
+
+                let Pattern::Pin(lhs) = pin else {
+                    unreachable!()
+                };
+
+                let rhs = self.parse_view_pat(diagnostics);
+
+                Pattern::View(lhs, Box::new(rhs))
+            // case "$..." just act as a regular pin pattern
+            } else {
+                self.parse_as_pat(diagnostics)
+            }
+        // otherwise, no valid view pattern, so continue up the chain of calls
+        } else {
+            self.parse_as_pat(diagnostics)
+        }
+    }
+
+    fn parse_as_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        if let Some((t, TokenKind::Ident)) = self.current_tk() {
+            if self.next_is_op("@") {
+                self.next();
+                self.next();
+
+                let rhs = self.parse_as_pat(diagnostics);
+
+                Pattern::As(GenericSymbol::SymbolToken(t), Box::new(rhs))
+            } else {
+                self.parse_cons_pat(diagnostics)
+            }
+        } else {
+            self.parse_cons_pat(diagnostics)
+        }
+    }
+
+    fn parse_cons_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        let lhs = self.parse_typed_pat(diagnostics);
+
+        if self.at_op("::") {
+            self.next();
+
+            let rhs = self.parse_cons_pat(diagnostics);
+
+            Pattern::Cons(Box::new(lhs), Box::new(rhs))
+        } else {
+            lhs
+        }
+    }
+
+    fn parse_typed_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        let lhs = self.parse_unary_pat(diagnostics);
+
+        if self.at(TokenKind::Colon) {
+            if self.next_is(TokenKind::Ident) {
+                let rhs = self.peek().unwrap();
+                
+                self.next();
+                self.next();
+
+                Pattern::Typed(Box::new(lhs), Expr::Symbol(GenericSymbol::SymbolToken(rhs)))
+            } else if self.next_is_op("$") {
+                self.next();
+
+                let Pattern::Pin(rhs) = self.parse_pin_pat(diagnostics) else { unreachable!() };
+                Pattern::Typed(Box::new(lhs), rhs)
+            } else {
+                todo!("report -- rhs of type pattern must either be a symbol or pin")
+            }
+        } else {
+            lhs
+        }
+    }
+
+    fn parse_unary_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        match self.current_kind() {
+            Some(TokenKind::Operator) => match self.current()
+                .unwrap()
+                .span()
+                .resolve_content(self.src)
+                .unwrap() {
+                    "!" => {
+                        self.next();
+
+                        Pattern::Not(Box::new(self.parse_primary_pat(diagnostics)))
+                    }
+
+                    "$" => {
+                        self.parse_pin_pat(diagnostics)
+                    }
+
+                    c => todo!("report -- unknown char {c:?}")
+            }
+
+            _ => self.parse_primary_pat(diagnostics)
+        }
+    }
+
+    fn parse_pin_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
+        self.consume_op("$");
+
+        match self.current_kind() {
+            Some(TokenKind::LParen) => {
+                self.next();
+
+                let expr = self.parse_expr(diagnostics);
+                self.consume(TokenKind::RParen);
+
+                Pattern::Pin(expr)
+            }
+
+            Some(TokenKind::Ident) => {
+                Pattern::Pin(Expr::Symbol(GenericSymbol::SymbolToken(self.current().unwrap())))
+            }
+
+            _ => todo!("report -- expected identifier")
+        }
+    }
+
+    fn parse_primary_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
         match self.current_tk() {
             Some((t, TokenKind::Ident)) => {
                 self.next();
@@ -366,7 +572,7 @@ impl<'s, 't> Parser<'s, 't> {
                     return Pattern::Literal(Literal::Unit);
                 }
 
-                let pat = self.parse_pattern(diagnostics);
+                let pat = self.parse_pat(diagnostics);
 
                 match self.current_kind() {
                     Some(TokenKind::RParen) => {
@@ -387,7 +593,7 @@ impl<'s, 't> Parser<'s, 't> {
                             // case (p1, p2, ...)
                             let mut patterns = vec![];
                             loop {
-                                patterns.push(self.parse_pattern(diagnostics));
+                                patterns.push(self.parse_pat(diagnostics));
                                 
                                 match self.current_kind() {
                                     Some(TokenKind::Comma) => { self.next(); }
