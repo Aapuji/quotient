@@ -1,6 +1,9 @@
 use codespan_reporting::diagnostic::Diagnostic;
 
-use crate::{ast::{Expr, GenericSymbol, Let, Literal, OpListItem, Pattern, TopLevel}, num::Complex, source::FileId, token::{Token, TokenKind}};
+use crate::ast::{Expr, GenericSymbol, Let, Literal, OpListItem, Pattern, TopLevel};
+use crate::num::Complex;
+use crate::source::FileId;
+use crate::token::{Token, TokenKind};
 
 #[derive(Debug, Clone)]
 pub struct Parser<'s, 't> {
@@ -34,24 +37,24 @@ impl<'s, 't> Parser<'s, 't> {
     }
 
     fn peek(&self) -> Option<Token> {
-        self.tokens.get(self.ptr + 1).copied()
-    }
-
-    fn next(&mut self) -> Option<Token> {
-        let mut token = None;
+        let mut pptr = self.ptr + 1;
         
-        while self.ptr < self.tokens.len() {
-            self.ptr += 1;
-
-            token = self.tokens.get(self.ptr).copied();
-            if token.is_some() && token.unwrap().kind() == TokenKind::Comment {
-                ()
-            } else {
-                break
-            }
+        while let Some(true) = self.tokens.get(pptr).map(|t| t.kind().is_comment()) {
+            pptr += 1;
         }
 
-        token
+        self.tokens.get(pptr).copied()
+    }
+
+    fn next(&mut self) -> Option<Token> {        
+        // do-while loop
+        while {
+            self.ptr += 1;
+
+            matches!(self.current_kind(), Some(TokenKind::Comment))
+        } {}
+
+        self.current()
     }
 
     fn at(&self, kind: TokenKind) -> bool {
@@ -141,6 +144,77 @@ impl<'s, 't> Parser<'s, 't> {
     fn parse_no_chain_expr(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Expr {
         match self.current_kind() {
             Some(TokenKind::Let) => Expr::Let(self.parse_let(diagnostics)),
+
+            Some(TokenKind::If) => {
+                self.next();
+                let cond = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::Then);
+                let if_branch = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::Else);
+                let else_branch = self.parse_no_chain_expr(diagnostics);
+
+                Expr::If(Box::new(cond), Box::new(if_branch), Box::new(else_branch))
+            }
+
+            Some(TokenKind::Match) => {
+                self.next();
+                let expr = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::With);
+                let mut branches = vec![];
+
+                loop {
+                    let pat = self.parse_pat(diagnostics);
+
+                    self.consume_op("=>");
+                    let expr = self.parse_expr(diagnostics);
+
+                    branches.push((Box::new(pat), Box::new(expr)));
+
+                    match self.current_kind() {
+                        Some(TokenKind::Comma) => {
+                            self.next();
+
+                            if self.at(TokenKind::End) {
+                                break
+                            }
+                        }
+                        Some(TokenKind::End) => break,
+                        _ => todo!("report -- expected 'end' found {:?}", self.current())
+                    };
+                }
+
+                self.consume(TokenKind::End);
+                Expr::Match(Box::new(expr), branches)
+            }
+
+            Some(TokenKind::Using) => {
+                self.next();
+                let resource_expr = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::As);
+                let pat = self.parse_pat(diagnostics);
+
+                self.consume(TokenKind::Do);
+                let block = self.parse_expr(diagnostics);
+
+                let r#else = if let Some(TokenKind::Else) = self.current_kind() {
+                    self.consume(TokenKind::Else);
+                    self.consume(TokenKind::As);
+                    let else_pat = self.parse_pat(diagnostics);
+
+                    self.consume(TokenKind::Do);
+                    Some((Box::new(else_pat), Box::new(self.parse_expr(diagnostics))))
+                } else {
+                    None
+                };
+
+                self.consume(TokenKind::End);
+                Expr::Using(Box::new(resource_expr), Box::new(pat), r#else, Box::new(block))
+            }
+
             _ => self.parse_operators(diagnostics)
         }
     }
@@ -291,70 +365,12 @@ impl<'s, 't> Parser<'s, 't> {
             }
 
             // Literals
-            Some((t, TokenKind::Int)) => {
-                self.next();
-
-                Expr::Literal(Literal::Int(t
-                    .span()
-                    .resolve_content(self.src)
-                    .unwrap() // perhaps add checking here, though there shouldn't be problem as tokens should be from same file
-                    .parse()
-                    .unwrap()))
-            }
-
-            Some((t, TokenKind::Real)) => {
-                self.next();
-
-                Expr::Literal(Literal::Real(t
-                    .span()
-                    .resolve_content(self.src)
-                    .unwrap()
-                    .parse()
-                    .unwrap()))
-            }
-
-            Some((t, TokenKind::Imaginary)) => {
-                self.next();
-
-                let mut s = t
-                    .span()
-                    .resolve_content(self.src)
-                    .unwrap()
-                    .chars();
-
-                s.next_back();
-                
-                let s = s.as_str();
-
-                // case i
-                if s.len() == 0 {
-                    Expr::Literal(Literal::Imaginary(
-                        Complex(0.into(), 1.into())
-                    ))
-                } else {
-                    Expr::Literal(Literal::Imaginary(s
-                    .parse()
-                    .unwrap()))
-                }
-            }
-
-            Some((_, TokenKind::True)) => {
-                self.next();
-
-                Expr::Literal(Literal::Bool(true))
-            }
-
-            Some((_, TokenKind::False)) => {
-                self.next();
-                
-                Expr::Literal(Literal::Bool(false))
-            }
-
-            Some((_, TokenKind::Unit)) => {
-                self.next();
-                
-                Expr::Literal(Literal::Unit)
-            }
+            Some((_, TokenKind::Int)) => Expr::Literal(self.parse_int()),
+            Some((_, TokenKind::Real)) => Expr::Literal(self.parse_real()),
+            Some((_, TokenKind::Imaginary)) => Expr::Literal(self.parse_complex()),
+            Some((_, TokenKind::True)) => Expr::Literal(self.parse_true()),
+            Some((_, TokenKind::False)) => Expr::Literal(self.parse_false()),
+            Some((_, TokenKind::Unit)) => Expr::Literal(self.parse_unit()),
 
             Some((_, TokenKind::LBracket)) => {
                 self.next();
@@ -373,6 +389,78 @@ impl<'s, 't> Parser<'s, 't> {
 
             _ => Err(())?,
         })
+    }
+
+    /// Should be called when at `TokenKind::Int`
+    fn parse_int(&mut self) -> Literal {
+        let t = self.current().unwrap();
+        
+        self.next();
+        Literal::Int(t
+            .span()
+            .resolve_content(self.src)
+            .inspect(|s| println!("s: {s:?}"))
+            .unwrap() // perhaps add checking here, though there shouldn't be problem as tokens should be from same file
+            .parse()
+            .unwrap())
+    }
+
+    /// Should be called when at `TokenKind::Real`
+    fn parse_real(&mut self) -> Literal {
+        let t = self.current().unwrap();
+        
+        self.next();
+        Literal::Real(t
+            .span()
+            .resolve_content(self.src)
+            .unwrap()
+            .parse()
+            .unwrap())
+    }
+
+    /// Should be called when at `TokenKind::Imaginary`
+    fn parse_complex(&mut self) -> Literal {
+        let t = self.current().unwrap();
+
+        self.next();
+        let mut s = t
+            .span()
+            .resolve_content(self.src)
+            .unwrap()
+            .chars();
+
+        s.next_back();
+        
+        let s = s.as_str();
+
+        // case i
+        if s.len() == 0 {
+            Literal::Imaginary(
+                Complex(0.into(), 1.into())
+            )
+        } else {
+            Literal::Imaginary(s
+                .parse()
+                .unwrap())
+        }
+    }
+
+    fn parse_true(&mut self) -> Literal {
+        self.next();
+
+        Literal::Bool(true)
+    }
+
+    fn parse_false(&mut self) -> Literal {
+        self.next();
+
+        Literal::Bool(false)
+    }
+
+    fn parse_unit(&mut self) -> Literal {
+        self.next();
+
+        Literal::Unit
     }
 
     fn parse_pat(&mut self, diagnostics: &mut Vec<Diagnostic<FileId>>) -> Pattern {
@@ -448,7 +536,7 @@ impl<'s, 't> Parser<'s, 't> {
                 Pattern::View(lhs, Box::new(rhs))
             // case "$..." just act as a regular pin pattern
             } else {
-                self.parse_as_pat(diagnostics)
+                pin
             }
         // otherwise, no valid view pattern, so continue up the chain of calls
         } else {
@@ -521,14 +609,14 @@ impl<'s, 't> Parser<'s, 't> {
                     "!" => {
                         self.next();
 
-                        Pattern::Not(Box::new(self.parse_primary_pat(diagnostics)))
+                        Pattern::Not(Box::new(self.parse_unary_pat(diagnostics)))
                     }
 
                     "$" => {
                         self.parse_pin_pat(diagnostics)
                     }
 
-                    c => todo!("report -- unknown char {c:?}")
+                    c => todo!("report -- unknown char {c}")
             }
 
             _ => self.parse_primary_pat(diagnostics)
@@ -539,20 +627,21 @@ impl<'s, 't> Parser<'s, 't> {
         self.consume_op("$");
 
         match self.current_kind() {
-            Some(TokenKind::LParen) => {
+            Some(TokenKind::Ident) => {
                 self.next();
 
-                let expr = self.parse_expr(diagnostics);
-                self.consume(TokenKind::RParen);
-
-                Pattern::Pin(expr)
-            }
-
-            Some(TokenKind::Ident) => {
                 Pattern::Pin(Expr::Symbol(GenericSymbol::SymbolToken(self.current().unwrap())))
             }
 
-            _ => todo!("report -- expected identifier")
+            Some(TokenKind::LParen) => {
+                self.next();
+                let expr = self.parse_expr(diagnostics);
+
+                self.consume(TokenKind::RParen);
+                Pattern::Pin(expr)
+            }
+
+            _ => todo!()
         }
     }
 
@@ -610,6 +699,25 @@ impl<'s, 't> Parser<'s, 't> {
                 }              
             }
 
+            // Literals
+            Some((_, TokenKind::Int)) => Pattern::Literal(self.parse_int()),
+            Some((_, TokenKind::Real)) => Pattern::Literal(self.parse_real()),
+            Some((_, TokenKind::Imaginary)) => Pattern::Literal(self.parse_complex()),
+            Some((_, TokenKind::True)) => Pattern::Literal(self.parse_true()),
+            Some((_, TokenKind::False)) => Pattern::Literal(self.parse_false()),
+            Some((_, TokenKind::Unit)) => Pattern::Literal(self.parse_unit()),
+            Some((t, TokenKind::Underscore)) => {
+                self.next();
+
+                if t.span().len() == 1 {
+                    Pattern::Underscore
+                } else {
+                    todo!("report -- multiiple underscore operators are reserver for future use")
+                }
+            }
+
+            // TODO: Add constructor patterns, record patterns, vector patterns, rest/splat patterns, etc.
+
             _ => todo!("report -- expected pattern, found {:?}", self.current())
         }
     }
@@ -621,6 +729,10 @@ impl<'s, 't> Parser<'s, 't> {
     pub fn parse(&mut self) -> (Vec<TopLevel>, Vec<Diagnostic<FileId>>) {
         let mut diagnostics = Vec::new();
         let mut top_items = Vec::new();
+
+        if let Some(TokenKind::Eof) = self.peek().map(|t| t.kind()) {
+            return (top_items, diagnostics)
+        }
 
         while !self.at_end() {
             if let Some(item) = self.parse_top(&mut diagnostics) {

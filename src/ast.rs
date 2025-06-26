@@ -38,7 +38,10 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     Chain(Box<Expr>, Box<Expr>),
     OperationList(Vec<OpListItem>),
-    Let(Let)
+    Let(Let),
+    If(Box<Expr>, Box<Expr>, Box<Expr>),
+    Match(Box<Expr>, Vec<(Box<Pattern>, Box<Expr>)>),
+    Using(Box<Expr>, Box<Pattern>, Option<(Box<Pattern>, Box<Expr>)>, Box<Expr>)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,6 +62,7 @@ pub enum Literal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Pattern {
     Literal(Literal),
+    Underscore,
     Binding(GenericSymbol),
     Tuple(Vec<Pattern>),
     // record here as well

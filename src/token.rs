@@ -27,10 +27,10 @@ impl Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub enum TokenKind {
     // Keywords
-    Let, Mut, And, Also, Type, Class, Module, Impl, Deriving, Import, As,
+    Let, Mut, And, Also, Type, Flags, Class, Module, Impl, Deriving, Import, As,
     If, Then, Else, Match, With, Do, End, Using, In, Matches, Some, Any,
     Sealed, Opaque, Extends,
-    Prefix, Postfix, Infix, InfixLeft, InfixRight, Lazy, Memo, Auto, Const,
+    Prefix, Postfix, Infix, InfixLeft, InfixRight, Lazy, Memo, Auto, Const, Affine,
     TodoDirective, UnreachableDirective, NoDirective, IgnoreDirective,
     
     // Identifiers
@@ -65,12 +65,24 @@ pub enum TokenKind {
     Eof
 }
 
+impl TokenKind {
+    pub fn is_comment(&self) -> bool {
+        match self {
+            Self::Comment         |
+            Self::DocComment      |
+            Self::UpperDocComment => true,
+            _ => false
+        }
+    }
+}
+
 pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "let" => TokenKind::Let,
     "mut" => TokenKind::Mut,
     "and" => TokenKind::And,
     "also" => TokenKind::Also,
     "type" => TokenKind::Type,
+    "flags" => TokenKind::Flags,
     "class" => TokenKind::Class,
     "module" => TokenKind::Module,
     "impl" => TokenKind::Impl,
@@ -101,6 +113,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "memo" => TokenKind::Memo,
     "auto" => TokenKind::Auto,
     "const" => TokenKind::Const,
+    "affine" => TokenKind::Affine,
     "true" => TokenKind::True,
     "false" => TokenKind::False,
     "unit" => TokenKind::Unit

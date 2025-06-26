@@ -1,1 +1,5 @@
-let x : Int = 2
+let file_text = using File.open(0, File.READ) as f do
+    read_text(f)
+else as g do
+    other
+end
